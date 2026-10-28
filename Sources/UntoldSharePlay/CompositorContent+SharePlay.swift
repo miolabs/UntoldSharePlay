@@ -5,8 +5,10 @@
 //  The system moves a shared immersive space by `immersiveSpaceDisplacement`
 //  so the group's origin lands in a good place for everyone; the device
 //  anchor, the hands and the controllers stay in the un-displaced ARKit frame.
-//  A CompositorLayer app applies the displacement itself to every pose that
-//  crosses the wire: this modifier feeds it to the session's frame.
+//  This modifier feeds the displacement to the session's frame, which applies
+//  it to every pose that crosses the wire. A Compositor Services space the
+//  system leaves where it is (identity, as the headsets showed): then the
+//  frame's placement comes from the system's pose of the device instead.
 //
 
 #if os(visionOS)
@@ -34,7 +36,7 @@
                 .onChange(of: displacement, initial: true) { previous, current in
                     let matrix = simd_float4x4(current)
                     let summary = SharedFrame.describe(matrix)
-                    session.frame.setSystemDisplacement(matrix, summary: summary)
+                    session.frame.setImmersiveSpaceDisplacement(matrix, summary: summary)
                     SharePlayLog.info(
                         "immersiveSpaceDisplacement → \(summary)"
                             + (previous == current ? "" : " (was \(SharedFrame.describe(simd_float4x4(previous))))")

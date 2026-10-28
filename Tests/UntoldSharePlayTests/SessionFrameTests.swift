@@ -157,10 +157,14 @@ final class SessionFrameTests: XCTestCase {
         try await waitUntil { b.frame.alignment(of: participantID(1)) == .systemDisplacement }
         assertClose(b.frame.toLocal(point: .zero, from: participantID(1)), SIMD3(0, 0, 4))
 
-        // B is no longer spatial with A: back to the fallback on A's side.
-        sessionA.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: true, remoteIsSpatial: [idB: false], groupImmersion: .requested(.mixed)))
-        try await waitUntil { a.frame.alignment(of: idB) == .fallbackStage }
-        a.leave()
+        // The spatial flags may lag or flicker (they did at the open over
+        // FaceTime): the placements stay in force until B leaves.
+        sessionA.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: false, remoteIsSpatial: [idB: false], groupImmersion: .requested(.mixed)))
+        try await waitUntil { a.others.first?.isSpatial == false }
+        XCTAssertEqual(a.frame.alignment(of: idB), .systemDisplacement)
         b.leave()
+        try await waitUntil { a.others.isEmpty }
+        XCTAssertEqual(a.frame.alignment(of: idB), .fallbackStage)
+        a.leave()
     }
 }

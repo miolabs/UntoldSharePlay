@@ -5,13 +5,14 @@
 //  How a pose crosses the wire. Every device publishes poses in its own
 //  local frame (ARKit's world frame on the engine path, the scene's frame on a
 //  RealityView space) and announces its placement in the group's shared
-//  frame when it knows one: the displacement the system applied to its space,
-//  or the coordinator's pose of the device in the shared frame, paired with
-//  the device pose on the floor. Per remote participant one mapping is in
-//  force, by precedence: the manual calibration the players solved, then the
-//  participant's shared world anchor (nearby), then the system's placements
-//  (ours composed with theirs), then a fallback stage pose. Lifted from
-//  CoolSaber, reworked after the headset runs of 2026-10-28.
+//  frame when it knows one: the displacement the system applied to its space
+//  when it moved it, or the coordinator's pose of the device in the shared
+//  frame, paired once with the device pose on the floor each time the system
+//  sends one. Per remote participant one mapping is in force, by precedence:
+//  the manual calibration the players solved, then the participant's shared
+//  world anchor (nearby), then the system's placements (ours composed with
+//  theirs), then a fallback stage pose. Lifted from CoolSaber, reworked after
+//  the headset runs of 2026-10-28 (nearby, then FaceTime).
 //
 
 import Foundation
@@ -74,6 +75,10 @@ public final class SharedFrame: @unchecked Sendable {
     /// Seconds the nudge sliders must rest before the solution is re-sent.
     public static let nudgeSettleInterval: TimeInterval = 0.3
 
+    /// Head speed (m/s) under which a new pairing may replace the placement:
+    /// a system pose paired while the person moves carries the system's lag.
+    public static let stillSpeed: Float = 0.25
+
     private struct Manual {
         var base: simd_float4x4
         var heading: SIMD3<Float>
@@ -101,12 +106,14 @@ public final class SharedFrame: @unchecked Sendable {
     private var placementSummary = "unknown"
     private var placementDirty = false
     private var systemPose: simd_float4x4?
+    private var systemPoseUnpaired = false // waiting for a device pose
     private var devicePose: simd_float4x4?
+    private var deviceUptime: TimeInterval?
+    private var deviceSpeed: Float = 0 // m/s, smoothed over the last frames
     // The others.
     private var remotePlacements: [UUID: simd_float4x4] = [:] // participant → their sharedFromLocal
     private var manual: [UUID: Manual] = [:]
     private var anchors: [UUID: Anchor] = [:]
-    private var sharesSystemFrame: Set<UUID> = []
     private var seats: [UUID: (seat: Int, count: Int)] = [:]
     private var marks: [UUID: simd_float4x4] = [:]
     private var pendingMark: simd_float4x4?
@@ -117,10 +124,12 @@ public final class SharedFrame: @unchecked Sendable {
 
     // MARK: Our placement in the group's frame
 
-    /// SwiftUI's `immersiveSpaceDisplacement` as a matrix: a pose in the
-    /// group's shared frame times it lands in this device's local frame. The
-    /// system moved our space: exact, and it wins over the system pose. A
-    /// RealityView space, whose scene is the shared frame, sets identity once.
+    /// Our local frame placed in the group's shared frame by the environment:
+    /// a pose in the shared frame times `localFromShared` lands in this
+    /// device's local frame. Exact, and it wins over the system pose. A
+    /// RealityView space, whose scene is the shared frame, sets identity once;
+    /// a space the system moved passes SwiftUI's displacement through
+    /// `setImmersiveSpaceDisplacement`, which knows identity means "not moved".
     public func setSystemDisplacement(_ localFromShared: simd_float4x4, summary: String? = nil) {
         lock.withLock {
             placementSource = .environment
@@ -128,22 +137,50 @@ public final class SharedFrame: @unchecked Sendable {
         }
     }
 
+    /// SwiftUI's `immersiveSpaceDisplacement` as it comes. Identity means the
+    /// system left our space where it is (always, for a Compositor Services
+    /// space; the headsets showed it) and says nothing about our placement:
+    /// the system pose decides. Anything else is the system's exact placement.
+    public func setImmersiveSpaceDisplacement(_ localFromShared: simd_float4x4, summary: String? = nil) {
+        guard localFromShared != matrix_identity_float4x4 else {
+            lock.withLock {
+                guard placementSource == .environment else { return }
+                placementSource = .none
+                setPlacementLocked(matrix_identity_float4x4, summary: "unknown (the space is back where it was)")
+                systemPoseUnpaired = systemPose != nil
+                pairSystemPoseLocked()
+            }
+            return
+        }
+        setSystemDisplacement(localFromShared, summary: summary)
+    }
+
     /// The coordinator's pose of this device in the shared frame: floor level,
-    /// a position and a heading, updated as the person moves. Paired with the
-    /// device pose on the floor it gives our placement when the system leaves
-    /// our space where it is (nearby, a Compositor Services space). nil clears.
+    /// a position and a heading. Nearby it tracks the device as the person
+    /// moves; over FaceTime it is the seat the spatial template gave us, reset
+    /// when the group's space opens. Each pose is paired once with the device
+    /// pose on the floor (the next one if none yet), which gives our placement
+    /// when the system leaves our space where it is. nil clears.
     public func setSystemPose(_ sharedFromDevice: simd_float4x4?) {
         lock.withLock {
             systemPose = sharedFromDevice
+            systemPoseUnpaired = sharedFromDevice != nil
             pairSystemPoseLocked()
         }
     }
 
-    /// The device pose in our local frame, every frame: pairs with the system pose.
-    public func updateDevicePose(_ localFromDevice: simd_float4x4) {
+    /// The device pose in our local frame, every frame, with the frame's
+    /// uptime: pairs a system pose still waiting, and keeps the head's speed.
+    public func updateDevicePose(_ localFromDevice: simd_float4x4, at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         lock.withLock {
+            if let devicePose, let deviceUptime, uptime - deviceUptime > 1e-3 {
+                let dt = Float(uptime - deviceUptime)
+                let speed = simd_distance(localFromDevice.columns.3, devicePose.columns.3) / dt
+                deviceSpeed += (speed - deviceSpeed) * min(1, dt / 0.2)
+            }
             devicePose = localFromDevice
-            pairSystemPoseLocked()
+            deviceUptime = uptime
+            if systemPoseUnpaired { pairSystemPoseLocked() }
         }
     }
 
@@ -172,21 +209,28 @@ public final class SharedFrame: @unchecked Sendable {
 
     private func pairSystemPoseLocked() {
         guard placementSource != .environment else { return }
-        guard let systemPose, let devicePose else {
-            if placementSource == .systemPose, systemPose == nil {
+        guard let systemPose else {
+            systemPoseUnpaired = false
+            if placementSource == .systemPose {
                 placementSource = .none
                 setPlacementLocked(matrix_identity_float4x4, summary: "unknown (the system pose went away)")
             }
             return
         }
+        guard systemPoseUnpaired, let devicePose else { return }
+        // One pairing per system pose: a later device pose alone never moves
+        // the placement, or the others would follow this head around.
+        systemPoseUnpaired = false
         // Both on the floor, yaw only: shared-from-local = sharedFromDevice × deviceFromLocal.
-        let sharedFromLocal = Self.floorPose(systemPose) * simd_inverse(Self.floorPose(devicePose))
-        let moved = placementSource != .systemPose
-            || simd_distance(sharedFromLocal.columns.3, sharedFromLocalStorage.columns.3) > 0.02
-            || simd_distance(sharedFromLocal.columns.0, sharedFromLocalStorage.columns.0) > 0.0175
-        guard moved else { return }
+        let candidate = Self.floorPose(systemPose) * simd_inverse(Self.floorPose(devicePose))
+        if placementSource == .systemPose {
+            // Replace a placement only for a real change, paired while still.
+            let differs = simd_distance(candidate.columns.3, sharedFromLocalStorage.columns.3) > 0.05
+                || simd_distance(candidate.columns.0, sharedFromLocalStorage.columns.0) > 0.05 // ~3°
+            guard differs, deviceSpeed < Self.stillSpeed else { return }
+        }
         placementSource = .systemPose
-        setPlacementLocked(sharedFromLocal, summary: "from the system pose \(Self.describe(simd_inverse(sharedFromLocal)))")
+        setPlacementLocked(candidate, summary: "from the system pose \(Self.describe(simd_inverse(candidate)))")
     }
 
     private func setPlacementLocked(_ sharedFromLocal: simd_float4x4, summary: String) {
@@ -213,17 +257,6 @@ public final class SharedFrame: @unchecked Sendable {
     }
 
     // MARK: Per-participant inputs (the session and the anchor tracker)
-
-    /// Spatial with us, or nearby: the system's placements may map their poses.
-    func setSharesSystemFrame(_ shares: Bool, for participant: UUID) {
-        lock.withLock {
-            if shares {
-                sharesSystemFrame.insert(participant)
-            } else {
-                sharesSystemFrame.remove(participant)
-            }
-        }
-    }
 
     func setSeat(_ seat: Int, count: Int, for participant: UUID) {
         lock.withLock { seats[participant] = (seat, count) }
@@ -375,7 +408,6 @@ public final class SharedFrame: @unchecked Sendable {
         lock.withLock {
             manual[participant] = nil
             anchors[participant] = nil
-            sharesSystemFrame.remove(participant)
             seats[participant] = nil
             marks[participant] = nil
             remotePlacements[participant] = nil
@@ -388,13 +420,13 @@ public final class SharedFrame: @unchecked Sendable {
         lock.withLock {
             manual.removeAll()
             anchors.removeAll()
-            sharesSystemFrame.removeAll()
             seats.removeAll()
             marks.removeAll()
             remotePlacements.removeAll()
             pendingSyncs.removeAll()
             pendingMark = nil
             systemPose = nil
+            systemPoseUnpaired = false
             if placementSource == .systemPose {
                 placementSource = .none
                 sharedFromLocalStorage = matrix_identity_float4x4
@@ -425,8 +457,7 @@ public final class SharedFrame: @unchecked Sendable {
             case .fallbackStage:
                 let seat = seats[participant] ?? (0, 1)
                 var why = "no alignment"
-                if !sharesSystemFrame.contains(participant) { why = "not spatial, not nearby" }
-                else if placementSource == .none { why = "our placement unknown" }
+                if placementSource == .none { why = "our placement unknown" }
                 else if remotePlacements[participant] == nil { why = "their placement unknown" }
                 return "fallback stage, seat \(seat.seat + 1) of \(seat.count) (\(why))"
             }
@@ -514,8 +545,8 @@ public final class SharedFrame: @unchecked Sendable {
         if let anchor = anchors[participant] {
             return (anchor.localFromParticipant, .sharedAnchor)
         }
-        if sharesSystemFrame.contains(participant), placementSource != .none, let theirs = remotePlacements[participant] {
-            // local ← shared ← their local.
+        if placementSource != .none, let theirs = remotePlacements[participant] {
+            // Both placements known (each from a system pose or a moved space): local ← shared ← their local.
             return (simd_inverse(sharedFromLocalStorage) * theirs, .systemDisplacement)
         }
         let seat = seats[participant] ?? (0, 1)

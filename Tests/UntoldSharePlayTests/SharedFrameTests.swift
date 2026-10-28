@@ -44,8 +44,7 @@ final class SharedFrameTests: XCTestCase {
         XCTAssertEqual(frame.takeOutgoingPlacement(), frame.sharedFromLocal, "announced once")
         XCTAssertNil(frame.takeOutgoingPlacement())
 
-        // Nearby, but their placement unknown: still the fallback.
-        frame.setSharesSystemFrame(true, for: other)
+        // Their placement unknown: still the fallback.
         XCTAssertEqual(frame.alignment(of: other), .fallbackStage)
         XCTAssertTrue(frame.summary(of: other).contains("their placement unknown"))
         // Their placement: their local is the shared frame itself.
@@ -57,9 +56,9 @@ final class SharedFrameTests: XCTestCase {
         theirs.columns.3 = SIMD4(2, 0, 0, 1)
         frame.receivePlacement(sharedFromLocal: theirs, from: other)
         assertClose(frame.toLocal(point: .zero, from: other), point(localFromShared, SIMD3(2, 0, 0)))
-        frame.setSharesSystemFrame(false, for: other)
+        frame.forget(other)
         XCTAssertEqual(frame.alignment(of: other), .fallbackStage)
-        XCTAssertTrue(frame.summary(of: other).contains("not spatial, not nearby"))
+        XCTAssertTrue(frame.summary(of: other).contains("their placement unknown"))
     }
 
     func testFloorPoseKeepsPositionAndYawOnly() {
@@ -84,7 +83,7 @@ final class SharedFrameTests: XCTestCase {
         device.columns.3 = SIMD4(0, 1.7, 0, 1)
         frame.setSystemPose(systemPose)
         XCTAssertFalse(frame.hasPlacement, "no device pose yet")
-        frame.updateDevicePose(device)
+        frame.updateDevicePose(device, at: 10)
         XCTAssertTrue(frame.hasPlacement)
         // Our origin, in the shared frame, is where the system put us; the
         // head's height never enters it.
@@ -92,17 +91,40 @@ final class SharedFrameTests: XCTestCase {
         assertClose(SharedFrame.transform(direction: SIMD3(0, 0, -1), by: frame.sharedFromLocal), SIMD3(0, 0, 1), accuracy: 1e-3)
         assertClose(point(frame.sharedFromLocal, SIMD3(0, 1.7, 0)), SIMD3(0, 1.7, -2))
         XCTAssertNotNil(frame.takeOutgoingPlacement())
-        // A head that only bobbed: no new placement; a step: a new one.
-        var bobbed = device
-        bobbed.columns.3 = SIMD4(0.005, 1.65, 0, 1)
-        frame.updateDevicePose(bobbed)
+
+        // The head walks half a metre along local +X with no new system pose:
+        // the placement stays (a seat over FaceTime does not follow the head,
+        // and neither may we, or the others would follow this head around).
+        var walked = feed(frame, from: device, at: 10, seconds: 0.5, velocity: 1)
         XCTAssertNil(frame.takeOutgoingPlacement())
-        var stepped = device
-        stepped.columns.3 = SIMD4(0.5, 1.7, 0, 1)
-        frame.updateDevicePose(stepped)
-        XCTAssertNotNil(frame.takeOutgoingPlacement(), "the pairing follows the pose")
-        // The pose going away clears a pose-based placement; the space's own
-        // displacement wins once it exists and outlives the session.
+        assertClose(point(frame.sharedFromLocal, .zero), SIMD3(0, 0, -2))
+        // The system tracked the step (nearby): the same placement within noise.
+        var tracked = systemPose
+        tracked.columns.3 = SIMD4(-0.5, 0, -2, 1)
+        frame.setSystemPose(tracked)
+        XCTAssertNil(frame.takeOutgoingPlacement(), "the same placement within noise")
+
+        // The system re-seats us a metre further while the head is still: a
+        // new placement, announced.
+        walked = feed(frame, from: walked.pose, at: walked.time, seconds: 1)
+        var reseated = systemPose
+        reseated.columns.3 = SIMD4(-0.5, 0, -3, 1)
+        frame.setSystemPose(reseated)
+        XCTAssertNotNil(frame.takeOutgoingPlacement())
+        assertClose(point(frame.sharedFromLocal, SIMD3(0.5, 0, 0)), SIMD3(-0.5, 0, -3))
+
+        // Re-seated again while walking at 1 m/s: kept, that pairing would
+        // carry the system's lag.
+        walked = feed(frame, from: walked.pose, at: walked.time, seconds: 0.3, velocity: 1)
+        var reseatedAgain = systemPose
+        reseatedAgain.columns.3 = SIMD4(-0.8, 0, -4, 1)
+        frame.setSystemPose(reseatedAgain)
+        XCTAssertNil(frame.takeOutgoingPlacement(), "paired while moving: not trusted")
+        assertClose(point(frame.sharedFromLocal, SIMD3(0.5, 0, 0)), SIMD3(-0.5, 0, -3))
+
+        // The pose going away clears a pose-based placement. A RealityView
+        // app's scene is the shared frame: identity, known, and it wins; it
+        // outlives the session.
         frame.setSystemPose(nil)
         XCTAssertFalse(frame.hasPlacement)
         frame.setSystemDisplacement(matrix_identity_float4x4)
@@ -112,9 +134,55 @@ final class SharedFrameTests: XCTestCase {
         XCTAssertTrue(frame.hasPlacement)
     }
 
+    func testImmersiveSpaceDisplacementIdentityIsNotAPlacement() {
+        let frame = SharedFrame()
+        // A Compositor Services space opens: SwiftUI reports identity, the
+        // system left the space where it is. Nothing known, nothing announced.
+        frame.setImmersiveSpaceDisplacement(matrix_identity_float4x4)
+        XCTAssertFalse(frame.hasPlacement)
+        XCTAssertNil(frame.takeOutgoingPlacement())
+        // The system pose then decides, as on the headsets (a FaceTime seat).
+        var systemPose = matrix_identity_float4x4
+        systemPose.columns.3 = SIMD4(0.7, 0, 0.92, 1)
+        var device = matrix_identity_float4x4
+        device.columns.3 = SIMD4(0, 1.6, 0, 1)
+        frame.setSystemPose(systemPose)
+        frame.updateDevicePose(device, at: 1)
+        XCTAssertTrue(frame.hasPlacement)
+        XCTAssertTrue(frame.displacementSummary.contains("from the system pose"))
+        assertClose(point(frame.sharedFromLocal, .zero), SIMD3(0.7, 0, 0.92))
+        // Identity again (the space reopened): still the pose's placement.
+        frame.setImmersiveSpaceDisplacement(matrix_identity_float4x4)
+        XCTAssertTrue(frame.hasPlacement)
+        assertClose(point(frame.sharedFromLocal, .zero), SIMD3(0.7, 0, 0.92))
+        // The system moves the space: exact, wins. Moved back: the pose again.
+        var moved = matrix_identity_float4x4
+        moved.columns.3 = SIMD4(0, 0, -4, 1)
+        frame.setImmersiveSpaceDisplacement(moved)
+        XCTAssertTrue(frame.displacementSummary.contains("space displaced"))
+        assertClose(point(frame.localFromShared, .zero), SIMD3(0, 0, -4))
+        frame.setImmersiveSpaceDisplacement(matrix_identity_float4x4)
+        XCTAssertTrue(frame.displacementSummary.contains("from the system pose"))
+        assertClose(point(frame.sharedFromLocal, .zero), SIMD3(0.7, 0, 0.92))
+    }
+
+    /// Device poses at 90 Hz for `seconds` from `start`, walking `velocity`
+    /// m/s along local +X; returns the last pose and time.
+    @discardableResult
+    private func feed(_ frame: SharedFrame, from pose: simd_float4x4, at start: TimeInterval, seconds: Double, velocity: Float = 0) -> (pose: simd_float4x4, time: TimeInterval) {
+        var pose = pose
+        var time = start
+        let dt = 1.0 / 90
+        while time < start + seconds - dt / 2 {
+            time += dt
+            pose.columns.3.x += velocity * Float(dt)
+            frame.updateDevicePose(pose, at: time)
+        }
+        return (pose, time)
+    }
+
     func testSharedAnchorWinsOverDisplacementAndSurvivesTrackingLoss() {
         let frame = SharedFrame()
-        frame.setSharesSystemFrame(true, for: other)
         frame.setSystemDisplacement(matrix_identity_float4x4)
         frame.receivePlacement(sharedFromLocal: matrix_identity_float4x4, from: other)
         var localFromOther = matrix_identity_float4x4
@@ -158,7 +226,6 @@ final class SharedFrameTests: XCTestCase {
 
     func testCalibrationInstallsManualAndQueuesTheInverse() {
         let frame = SharedFrame()
-        frame.setSharesSystemFrame(true, for: other)
         let outcome = frame.calibrate(
             with: other,
             localPoint: SIMD3(1, 1, -1), localHeading: SIMD3(0, 0, -1),

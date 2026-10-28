@@ -14,35 +14,34 @@
 //
 
 #if SHAREDCUBE_WORLD_ANCHORS
-import Foundation
-import simd
-import UntoldEngineXR
-import UntoldSharePlay
+    import Foundation
+    import simd
+    import UntoldEngineXR
+    import UntoldSharePlay
 
-extension UntoldEngineXR: @retroactive @unchecked Sendable {}
+    extension UntoldEngineXR: @retroactive @unchecked Sendable {}
 
-extension UntoldEngineXR: SharePlayWorldAnchorHost {
-    public func addSharedWorldAnchor(localFromAnchor: simd_float4x4) -> UUID? {
-        addWorldAnchor(originFromAnchorTransform: localFromAnchor, sharedWithNearbyParticipants: true)
-    }
+    extension UntoldEngineXR: SharePlayWorldAnchorHost {
+        public func addSharedWorldAnchor(localFromAnchor: simd_float4x4) -> UUID? {
+            addWorldAnchor(originFromAnchorTransform: localFromAnchor, sharedWithNearbyParticipants: true)
+        }
 
-    public func addWorldAnchorObserver(_ handler: @escaping @Sendable (SharePlayAnchorUpdate) -> Void) -> UUID {
-        addWorldAnchorObserver { (update: XRWorldAnchorUpdate) in
-            let event: SharePlayAnchorUpdate.Event
-            switch update.event {
-            case .added: event = .added
-            case .updated: event = .updated
-            case .removed: event = .removed
+        public func addWorldAnchorObserver(_ handler: @escaping @Sendable (SharePlayAnchorUpdate) -> Void) -> UUID {
+            addWorldAnchorObserver { (update: XRWorldAnchorUpdate) in
+                let event: SharePlayAnchorUpdate.Event = switch update.event {
+                case .added: .added
+                case .updated: .updated
+                case .removed: .removed
+                }
+                handler(SharePlayAnchorUpdate(
+                    id: update.id,
+                    localFromAnchor: update.originFromAnchorTransform,
+                    isTracked: update.isTracked,
+                    isShared: update.isSharedWithNearbyParticipants,
+                    isOwn: update.isOwn,
+                    event: event
+                ))
             }
-            handler(SharePlayAnchorUpdate(
-                id: update.id,
-                localFromAnchor: update.originFromAnchorTransform,
-                isTracked: update.isTracked,
-                isShared: update.isSharedWithNearbyParticipants,
-                isOwn: update.isOwn,
-                event: event
-            ))
         }
     }
-}
 #endif

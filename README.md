@@ -110,11 +110,15 @@ by one of four alignments, in this order of precedence:
    origin (nearby, visionOS 26, through the engine's world-anchor API).
 3. **System placements**: ours composed with theirs. A placement comes from
    SwiftUI's `immersiveSpaceDisplacement` when the system moved our space, or
-   from the system coordinator's pose of this device in the shared frame (a
-   floor-level position and heading, updated as the person moves), paired with
-   the device pose on the floor. In a Compositor Services space the system
-   leaves the displacement at identity, so the pose is what aligns nearby
-   devices; the headsets confirmed it is delivered there.
+   from the system coordinator's pose of this device in the shared frame: a
+   floor-level position and heading, which nearby tracks the device as the
+   person moves and over FaceTime is the seat the spatial template gave us,
+   reset when the group's space opens. Each pose is paired once with the
+   device pose on the floor (a head's height, or a later step, never enters
+   it), and a pairing made while the head moves does not replace one made
+   still. A Compositor Services space the system leaves where it is
+   (identity), so the pose is what aligns the devices; the headsets confirmed
+   it is delivered there, nearby and over FaceTime.
 4. **Fallback stage**: a row 2 m ahead, facing us, 0.8 m apart, in join order.
 
 ```swift

@@ -89,9 +89,13 @@ that cube.
 |---|---|
 | 1. FaceTime call between the two headsets. On both: run. | As A.1. |
 | 2. On one: Start SharePlay. On the other: accept. | Both windows: `Joined with 1 other participant`, `nearby 0`. Nothing opens by itself. |
-| 3. On both: Open space. | The other player's cube in our space, moving as they move their head. Note the alignment on their line: `fallbackStage` puts them 2 m ahead, facing us; `systemDisplacement` means the coordinator delivered a seat for them in our space (`our placement:` says from what). Mark and Sync make no sense across rooms; the sliders still nudge. |
-| 4. Walk, turn, crouch on one side. | The cube follows on the other side, at the right height and heading relative to its spot. |
+| 3. On both: Open space. | Within a few seconds `our placement:` reads `from the system pose …` on both and the other's line `systemDisplacement`. Their cube sits at the seat the system's conversational template gives them, relative to where you stood when the space opened: about 1.4 m away, facing you. Not where their Persona stood before the open: the system re-seats everyone when the group's space opens (the poses in the log reset to the template's seats), and the Metal space has no Persona to show the new seat. Mark and Sync make no sense across rooms; the sliders still nudge. |
+| 4. Walk, turn, crouch on one side. | On the other side the cube stays put in the room while its owner stands still, and follows the walker's head at the right height and heading relative to their seat. |
 | 5. Leave and rejoin as A.6 and A.7. | The same. |
+
+**First run 2026-10-28:** both cubes showed in front, at the fallback spot:
+the space's identity displacement had locked the placement and the spatial
+flags flickered at the open. Both fixed; to be run again.
 
 ### B2. Remote, over FaceTime: the cube on the spatial Persona
 

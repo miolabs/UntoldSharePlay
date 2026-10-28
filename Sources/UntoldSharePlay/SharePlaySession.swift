@@ -480,13 +480,12 @@ public final class SharePlaySession {
         updateFrameParticipants()
     }
 
-    /// Who shares the system's frame with us, who sits where on the fallback
-    /// stage, and whether our shared anchor is wanted.
+    /// Who sits where on the fallback stage, and whether our shared anchor is
+    /// wanted. (Whether the system's placements apply is the placements'
+    /// business: a device announces one only once the system placed it.)
     private func updateFrameParticipants() {
         let others = others
         for (seat, participant) in others.enumerated() {
-            let shares = (isSpatial && participant.isSpatial) || participant.isNearby
-            frame.setSharesSystemFrame(shares, for: participant.id)
             frame.setSeat(seat, count: others.count, for: participant.id)
         }
         anchors.update(nearby: Set(others.filter(\.isNearby).map(\.id)), sessionActive: state == .joined)

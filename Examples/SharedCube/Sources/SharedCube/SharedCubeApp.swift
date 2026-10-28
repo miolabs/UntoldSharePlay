@@ -160,7 +160,7 @@ struct CubeSpace: CompositorContent {
             // Shared world anchors through the engine, when the build has the
             // API (CubeAnchors.swift); off, the frame aligns by the system pose.
             #if SHAREDCUBE_WORLD_ANCHORS
-            model.session.anchors.attach(xr)
+                model.session.anchors.attach(xr)
             #endif
             xr.setImmersionMode(xrImmersionMode: .mixed)
 
