@@ -3,9 +3,10 @@
 //  UntoldSharePlay
 //
 //  One object per app: the session's state, its participants and host, the
-//  channels, the system's spatial reports, and the pump that sends what the
-//  channels queued. Main actor and observable, so a window shows it; the
-//  channels it hands out are usable from a render thread.
+//  channels, the system's spatial reports, the shared frame and the anchors,
+//  and the pump that sends what the channels queued. Main actor and
+//  observable, so a window shows it; the channels and the frame it hands out
+//  are usable from a render thread.
 //
 
 import Foundation
@@ -44,8 +45,14 @@ public final class SharePlaySession {
         case joined
     }
 
+    static let frameChannelID = "untold.shareplay.frame"
+
     public let configuration: Configuration
     public let diagnostics = SharePlayDiagnostics()
+    /// How poses cross the wire; read per frame.
+    public let frame = SharedFrame()
+    /// Shared world anchors for nearby participants, once a host is attached.
+    public let anchors: SharedAnchorTracker
     public private(set) var state: State = .idle
     public private(set) var statusMessage = "Not sharing. Start from a FaceTime call, or share with people nearby."
     public private(set) var localParticipantID: UUID?
@@ -60,24 +67,29 @@ public final class SharePlaySession {
         hostID != nil && hostID == localParticipantID
     }
 
-    /// The participants other than this device.
+    /// The participants other than this device, in join order.
     public var others: [SharePlayParticipant] {
         participants.filter { !$0.isLocal }
     }
 
     @ObservationIgnored private let transport: any SharePlayTransport
     @ObservationIgnored private let router = SharePlayRouter()
+    @ObservationIgnored private let frameChannel: SharePlayEventChannel<SharePlayFrameMessage>
     @ObservationIgnored private var transportSession: (any SharePlayTransportSession)?
     @ObservationIgnored private var channelsByDelivery: [SharePlayDelivery: any SharePlayTransportChannel] = [:]
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     @ObservationIgnored private var observerTask: Task<Void, Never>?
     @ObservationIgnored private var handlers: [UUID: @MainActor (SharePlayEvent) -> Void] = [:]
+    @ObservationIgnored private var tickHandlers: [UUID: @MainActor () -> Void] = [:]
     @ObservationIgnored private var joinedAt: [UUID: TimeInterval] = [:]
     @ObservationIgnored private var remoteSpatial: [UUID: Bool] = [:]
 
     public init(transport: any SharePlayTransport, configuration: Configuration = Configuration()) {
         self.transport = transport
         self.configuration = configuration
+        anchors = SharedAnchorTracker(frame: frame)
+        frameChannel = SharePlayEventChannel<SharePlayFrameMessage>(id: Self.frameChannelID, diagnostics: diagnostics)
+        router.register(frameChannel)
     }
 
     /// Over GroupActivities with the game's own activity.
@@ -177,7 +189,7 @@ public final class SharePlaySession {
         return channel
     }
 
-    // MARK: Events
+    // MARK: Events and ticks
 
     @discardableResult
     public func addEventHandler(_ handler: @escaping @MainActor (SharePlayEvent) -> Void) -> UUID {
@@ -188,6 +200,40 @@ public final class SharePlaySession {
 
     public func removeEventHandler(_ id: UUID) {
         handlers[id] = nil
+    }
+
+    /// Called once per pump tick while joined, on the main actor, after the
+    /// session's own frame messages were handled and before the channels are
+    /// flushed.
+    @discardableResult
+    public func addTickHandler(_ handler: @escaping @MainActor () -> Void) -> UUID {
+        let id = UUID()
+        tickHandlers[id] = handler
+        return id
+    }
+
+    public func removeTickHandler(_ id: UUID) {
+        tickHandlers[id] = nil
+    }
+
+    /// Opens the coordinator's space when the system asks for the group
+    /// immersive space, cycles it on the join (a space opened before the join
+    /// stays private), dismisses it when the group leaves its space.
+    public func drive(_ coordinator: ImmersiveSpaceCoordinator) {
+        addEventHandler { event in
+            switch event {
+            case .joined:
+                coordinator.joinGroup(reason: "session joined")
+            case let .groupImmersionChanged(immersion):
+                switch immersion {
+                case .requested: coordinator.joinGroup(reason: "group immersion requested")
+                case .ended: coordinator.dismiss(reason: "group immersion ended")
+                case .notRequested: break
+                }
+            default:
+                break
+            }
+        }
     }
 
     private func emit(_ event: SharePlayEvent) {
@@ -254,10 +300,37 @@ public final class SharePlaySession {
         return Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 if let self, state == .joined {
+                    tick()
                     await flush()
                 }
                 try? await Task.sleep(for: .seconds(interval))
             }
+        }
+    }
+
+    /// The session's own traffic: calibrations and anchors in, then out.
+    private func tick() {
+        for received in frameChannel.drain() {
+            switch received.message {
+            case let .frameSync(receiverFromSender):
+                frame.receiveManual(localFromParticipant: receiverFromSender.matrix, from: received.sender)
+                SharePlayLog.info("frame sync received from \(received.sender): \(frame.summary(of: received.sender))")
+            case let .sharedAnchor(id):
+                anchors.receiveAnnouncement(anchorID: id, from: received.sender)
+            case .sharedAnchorRemoved:
+                anchors.receiveRemoval(from: received.sender)
+            }
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        for sync in frame.takeOutgoingSyncs(now: now) {
+            frameChannel.send(.frameSync(receiverFromSender: SharePlayMatrix(sync.receiverFromSender)), to: .only([sync.participant]))
+            SharePlayLog.info("frame sync sent to \(sync.participant)")
+        }
+        for announcement in anchors.takeOutgoingAnnouncements() {
+            frameChannel.send(announcement.message, to: announcement.recipients)
+        }
+        for handler in tickHandlers.values {
+            handler()
         }
     }
 
@@ -293,6 +366,7 @@ public final class SharePlaySession {
                 emit(.joined(local: local))
             }
             electHost()
+            updateFrameParticipants()
         case let .invalidated(reason):
             SharePlayLog.info("session invalidated: \(reason)")
             cleanup()
@@ -323,18 +397,22 @@ public final class SharePlaySession {
         for id in previousIDs.subtracting(incomingIDs) where id != localParticipantID {
             joinedAt[id] = nil
             router.forget(participant: id)
+            frame.forget(id)
+            anchors.forget(id)
             SharePlayLog.info("participant left: \(id)")
             emit(.participantLeft(id))
         }
         for id in incomingIDs.subtracting(previousIDs) where id != localParticipantID {
             let nearby = incoming.first { $0.id == id }?.isNearby ?? false
             SharePlayLog.info("participant joined: \(id), nearby \(nearby)")
+            anchors.participantJoined(id)
             emit(.participantJoined(id))
         }
         if state == .joined {
             updateJoinedStatus()
             electHost()
         }
+        updateFrameParticipants()
     }
 
     private func apply(spatial update: SharePlaySpatialUpdate) {
@@ -354,6 +432,19 @@ public final class SharePlaySession {
             SharePlayLog.info("group immersion: \(groupImmersion)")
             emit(.groupImmersionChanged(groupImmersion))
         }
+        updateFrameParticipants()
+    }
+
+    /// Who shares the system's frame with us, who sits where on the fallback
+    /// stage, and whether our shared anchor is wanted.
+    private func updateFrameParticipants() {
+        let others = others
+        for (seat, participant) in others.enumerated() {
+            let shares = (isSpatial && participant.isSpatial) || participant.isNearby
+            frame.setSharesSystemFrame(shares, for: participant.id)
+            frame.setSeat(seat, count: others.count, for: participant.id)
+        }
+        anchors.update(nearby: Set(others.filter(\.isNearby).map(\.id)), sessionActive: state == .joined)
     }
 
     private func electHost() {
@@ -377,6 +468,8 @@ public final class SharePlaySession {
         channelsByDelivery.removeAll()
         transportSession = nil
         router.resetAll()
+        frame.reset()
+        anchors.reset()
         participants.removeAll()
         joinedAt.removeAll()
         remoteSpatial.removeAll()
