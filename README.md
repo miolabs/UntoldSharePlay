@@ -135,8 +135,15 @@ let space = ImmersiveSpaceCoordinator(id: "Arena")          // tracksTeardown: f
 space.bind(open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
 session.drive(space)      // opens on the group's request, cycles on the join, dismisses when the group leaves
 // From the CompositorLayer closure: space.spaceDidStart(rendering: true)
-// From the engine's shutdown completion: space.spaceDidTearDown()
+// After xr.runLoop() returns, on the main actor: release the engine, then space.spaceDidTearDown()
 ```
+
+Release the engine synchronously after `runLoop()` returns (stop it, clear the
+spatial input, `destroyAllEntities()` without a completion, drop the holder's
+references), as `Examples/SharedCube` and CoolBowling do. Do not wait for
+`shutdownUntoldEngineXR`'s completion there: it fires from a frame's finalize
+pass, and no frame runs once the loop has returned, so a game with entities
+would never report the teardown and the space could never reopen.
 
 ### Threads
 

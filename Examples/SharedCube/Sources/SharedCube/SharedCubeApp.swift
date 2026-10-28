@@ -73,9 +73,14 @@ struct ControlView: View {
         .task {
             model.coordinator.bind(open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
             model.session.startObserving()
-            // `--open-space` opens the immersive space at launch (simulator runs).
-            if CommandLine.arguments.contains("--open-space") {
+            // `--open-space` opens the immersive space at launch (simulator runs);
+            // `--cycle-space` also cycles it 8 s later, as the join does.
+            if CommandLine.arguments.contains("--open-space") || CommandLine.arguments.contains("--cycle-space") {
                 model.coordinator.open(reason: "launch argument")
+            }
+            if CommandLine.arguments.contains("--cycle-space") {
+                try? await Task.sleep(for: .seconds(8))
+                model.coordinator.joinGroup(reason: "launch argument")
             }
         }
     }
@@ -146,14 +151,13 @@ struct CubeSpace: CompositorContent {
             let thread = Thread {
                 xr.start()
                 xr.runLoop()
+                // The layer was invalidated: the space closed. Release the engine
+                // now (no deferred teardown: nothing finalizes once the loop has
+                // returned) and tell the coordinator, so the next open starts clean.
                 game.shutdown()
                 Task { @MainActor in
-                    shutdownUntoldEngineXR(xr) {
-                        CubeHolder.shared.xr = nil
-                        CubeHolder.shared.game = nil
-                        CubeHolder.shared.renderThread = nil
-                        coordinator.spaceDidTearDown()
-                    }
+                    CubeHolder.shared.release()
+                    coordinator.spaceDidTearDown()
                 }
             }
             thread.name = "XR Render Thread"

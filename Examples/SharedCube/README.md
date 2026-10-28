@@ -17,7 +17,8 @@ visionOS 26 (the `CompositorContent` API). The engine comes from the fork's
 `develop`; the plugin from this repository by path. Run on a Vision Pro: the
 simulator builds and opens the space, but has no SharePlay. The launch
 argument `--open-space` opens the space at launch (simulator runs from the
-command line).
+command line); `--cycle-space` also closes and reopens it 8 s later, the way
+the join does.
 
 ## What the window shows
 
