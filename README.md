@@ -10,10 +10,11 @@ It comes from three hand-written copies of the same code: CoolSaber's duel in [U
 |---|---|---|
 | 1 | The core: session, channels, participants and host election, status view, diagnostics, the transport seam with the GroupActivities and loopback transports; tests on macOS | **built** (PR #1) |
 | 2 | The shared frame (the system's displacement, shared world anchors, the manual calibration, the fallback stage), the immersive-space coordinator, the displacement modifier for a CompositorLayer, the `SharedCube` example | **built** (this branch); the engine side of the shared anchors waits for the engine's world-anchor API |
-| 3 | CoolSaber on the plugin (two headsets) | |
+| 2b | The headset test of stages 1 and 2 with `Examples/SharedCube` (nearby, FaceTime, alone): the protocol is in the example's README | **next**, before anything else |
+| 3 | CoolSaber on the plugin (two headsets) | after the engine's world-anchor API ships |
 | 4 | Oche's SharePlay milestone on the core (RealityKit, no engine) | |
-| 5 | `untoldengine create --shareplay`, the engine docs page | |
-| 6 | An editor plugin: the session options in the Inspector, the participants' spots drawn in the viewport | |
+| 5 | `untoldengine create --shareplay`, the engine docs page | **built** (engine fork PR miolabs/UntoldEngine#86) |
+| 6 | An editor plugin: the session options in the Inspector, the participants' spots drawn in the viewport | after the headset test |
 
 ## Products
 
@@ -182,7 +183,7 @@ GroupActivities itself is exercised only on devices (the simulator has no ShareP
 | `SharedAnchorTracker.swift` | Shared world anchors behind `SharePlayWorldAnchorHost`; the session's frame messages. |
 | `ImmersiveSpaceCoordinator.swift` | The open/cycle/dismiss phase machine. |
 | `CompositorContent+SharePlay.swift` | `.sharePlayFrame(session)` for a CompositorLayer (visionOS 26). |
-| `Examples/SharedCube/` | The example app: every participant's head as a cube, with the calibration and the nudges in the window (`xcodegen generate`, visionOS 26). |
+| `Examples/SharedCube/` | The example app and the headset test protocol (its README): every participant's head as a cube, with the calibration and the nudges in the window (`xcodegen generate`, visionOS 26). |
 
 ## Compatibility
 
