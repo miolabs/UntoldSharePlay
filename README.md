@@ -115,14 +115,23 @@ CompositorLayer(configuration: config) { layerRenderer in ... }
 // A RealityView app does nothing: scene coordinates are the shared frame;
 // ARKit-sourced poses (hands, anchors) go through session.frame.sharedFromLocal.
 
-// The manual calibration: both players touch one point and face one way.
-// `remotePoint` and `remoteHeading` are what the participant published, raw.
-switch session.frame.calibrate(with: participant, localPoint: p, localHeading: h, remotePoint: rp, remoteHeading: rh) {
+// The manual calibration, with marks: one player marks their spot (a pose in
+// their local frame, the head or a controller) and steps aside; the other
+// stands on it, faces the same way and calibrates to the mark.
+session.frame.publishMark(localPose: head)                       // player 1, sent to everyone
+switch session.frame.calibrate(with: participant, localPoint: p, localHeading: h) {   // player 2, on the mark
 case let .solved(yawDegrees, offset): ...   // installed here, the inverse sent to the other side
-case let .failed(reason): ...               // "hold the headings level"
+case let .failed(reason): ...               // "no mark from the other side yet", "hold the headings level"
 }
-session.frame.setNudge(SIMD2(side, forward), for: participant)   // fine tune; re-sent once it rests 0.3 s
+// Or with one physical point both can touch at once (CoolSaber's controllers), raw from their state:
+session.frame.calibrate(with: participant, localPoint: p, localHeading: h, remotePoint: rp, remoteHeading: rh)
+session.frame.setNudge(SIMD2(side, forward), for: participant)   // fine tune; one alignment for both sides, re-sent once it rests 0.3 s
 ```
+
+In a Compositor Services space the system reports the device as not spatial
+and leaves the displacement at identity for nearby participants (both seen
+on the headsets), so until the engine's shared world anchors are in, nearby
+alignment is the mark and sync.
 
 Shared world anchors (visionOS 26, nearby participants): the session places this device's anchor at its origin as soon as someone nearby is in the session, announces its id on its own channel, and maps every other participant's anchor into the frame. This needs a world-tracking host: `session.anchors.attach(host)` with a `SharePlayWorldAnchorHost` (four methods: add a shared anchor, remove it, observe updates, stop observing). The engine's XR runtime conforms once its world-anchor API ships; until then a game on CoolSaber's engine branch writes the 20-line conformance itself.
 
@@ -133,7 +142,9 @@ Shared world anchors (visionOS 26, nearby participants): the session places this
 ```swift
 let space = ImmersiveSpaceCoordinator(id: "Arena")          // tracksTeardown: false for a RealityView space
 space.bind(open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
-session.drive(space)      // opens on the group's request, cycles on the join, dismisses when the group leaves
+session.drive(space)      // join first, then the player opens the space: an open space is cycled on the
+                          // join (it would stay private), the space is dismissed when the group leaves
+                          // its space; drive(space, opensOnRequest: true) also opens it on the group's request
 // From the CompositorLayer closure: space.spaceDidStart(rendering: true)
 // After xr.runLoop() returns, on the main actor: release the engine, then space.spaceDidTearDown()
 ```

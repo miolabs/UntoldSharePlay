@@ -59,33 +59,43 @@ final class CubeGame {
                 controls.headSummary = String(format: "head (%.2f, %.2f, %.2f) m", p.x, p.y, p.z)
             }
         }
+        if controls.takeMarkRequest() {
+            markSpot()
+        }
         if controls.takeCalibrationRequest() {
             calibrate()
         }
         placeCubes(now: now)
     }
 
-    /// Both players on one spot, facing the same way: our head is their head.
+    /// Mark my spot: our head pose, for the other player to stand on.
+    private func markSpot() {
+        guard let head = lastHead else {
+            controls.lastCalibration = "no head pose yet"
+            return
+        }
+        frame.publishMark(localPose: head)
+        controls.lastCalibration = "marked this spot; step aside and let the other player stand on it, facing the same way"
+    }
+
+    /// Sync to the other player's mark: we stand on their spot, facing their
+    /// way, so our head is where theirs was.
     private func calibrate() {
         guard let head = lastHead else {
             controls.lastCalibration = "no head pose yet"
             return
         }
-        let latest = poses.latestAll().filter { $0.value.age < 2 }
-        guard let (participant, received) = latest.min(by: { $0.value.arrivalUptime > $1.value.arrivalUptime }) else {
-            controls.lastCalibration = "no fresh head pose from anyone"
+        guard let participant = controls.others.first(where: { frame.mark(from: $0) != nil }) else {
+            controls.lastCalibration = "no mark from the other player yet: they tap Mark first"
             return
         }
-        let remote = received.message.matrix.matrix
         let localPoint = SIMD3<Float>(head.columns.3.x, head.columns.3.y, head.columns.3.z)
         let localHeading = -SIMD3<Float>(head.columns.2.x, head.columns.2.y, head.columns.2.z)
-        let remotePoint = SIMD3<Float>(remote.columns.3.x, remote.columns.3.y, remote.columns.3.z)
-        let remoteHeading = -SIMD3<Float>(remote.columns.2.x, remote.columns.2.y, remote.columns.2.z)
-        switch frame.calibrate(with: participant, localPoint: localPoint, localHeading: localHeading, remotePoint: remotePoint, remoteHeading: remoteHeading) {
+        switch frame.calibrate(with: participant, localPoint: localPoint, localHeading: localHeading) {
         case let .solved(yaw, offset):
-            controls.lastCalibration = String(format: "calibrated with %@: yaw %.0f°, offset (%.2f, %.2f, %.2f) m", participant.uuidString.prefix(8) as CVarArg, yaw, offset.x, offset.y, offset.z)
+            controls.lastCalibration = String(format: "aligned with %@: yaw %.0f°, offset (%.2f, %.2f, %.2f) m", String(participant.uuidString.suffix(4)) as CVarArg, yaw, offset.x, offset.y, offset.z)
         case let .failed(reason):
-            controls.lastCalibration = "calibration failed: \(reason)"
+            controls.lastCalibration = "alignment failed: \(reason)"
         }
     }
 

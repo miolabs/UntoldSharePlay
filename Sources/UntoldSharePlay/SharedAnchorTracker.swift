@@ -276,4 +276,7 @@ enum SharePlayFrameMessage: Codable, Sendable, Equatable {
     /// The sender's shared world anchor has this id.
     case sharedAnchor(id: UUID)
     case sharedAnchorRemoved
+    /// The sender marked a spot: a pose in the sender's wire frame for the
+    /// others to stand on and calibrate to.
+    case mark(pose: SharePlayMatrix)
 }

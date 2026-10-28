@@ -10,14 +10,27 @@ import simd
 /// Lock-guarded: the game runs on the render thread.
 final class CubeControls: @unchecked Sendable {
     private let lock = NSLock()
+    private var markRequested = false
     private var calibrationRequested = false
-    private var lastCalibrationStorage = "not calibrated"
+    private var lastCalibrationStorage = "not aligned"
     private var headSummaryStorage = "no head pose yet"
     private var cubeCountStorage = 0
     private var othersStorage: [UUID] = []
 
-    /// The window's Sync button: both players stand on one spot, facing the
-    /// same way, then one taps Sync.
+    /// Mark my spot: our head pose goes to the others as the spot to stand on.
+    func requestMark() {
+        lock.withLock { markRequested = true }
+    }
+
+    func takeMarkRequest() -> Bool {
+        lock.withLock {
+            let requested = markRequested
+            markRequested = false
+            return requested
+        }
+    }
+
+    /// Sync to the other player's mark: we stand on it, facing the same way.
     func requestCalibration() {
         lock.withLock { calibrationRequested = true }
     }

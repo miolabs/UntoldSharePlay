@@ -46,25 +46,25 @@ in the second column.
 
 | Step | Expected |
 |---|---|
-| 1. On both: build, run, Open space. | A small cube on the floor at each device's own origin. |
-| 2. On one: Start SharePlay; choose the other person from the nearby list. On the other: accept. | Both windows: `Joined with 1 other participant`, `nearby 1`; the space closes and reopens on each (the join cycles it so it becomes the group's). |
-| 3. Look at each other. | A cube at the other person's head, within a few centimetres, if the system aligned the spaces: the participant line says `systemDisplacement`; `displacement` is not identity. If it says `systemDisplacement` but the cube is somewhere else, the displacement is identity for nearby participants in a Metal space (what CoolSaber saw): go to step 4. |
-| 4. Stand on one spot, face the same way, tap Sync on one device. | Its line turns `manual · yaw …° · offset … m`; within a second the other device's line says `synced by the other side`. The cubes now sit on the heads. |
-| 5. Move the sliders on the device that synced. | The cube shifts live; about a second after the sliders rest, the other device follows. |
+| 1. On both: build and run. Do not open the space yet. | The window's four numbered sections. |
+| 2. On one: Start SharePlay; choose the other person from the nearby list. On the other: accept. | Both windows: `Joined with 1 other participant`, section 2 lists the other as `nearby`. Nothing opens by itself. |
+| 3. On both: Open space. | A small cube on the floor at each device's own origin. `spatial` turns `no` once the Metal space is open (the system does not seat a Compositor Services space), so the other's line says `systemDisplacement` with an identity displacement: their cube is at their raw position, most likely not on their head. |
+| 4. Player 1: stand on a spot, face a direction, tap Mark my spot, step aside. Player 2: stand on that spot, face the same way, tap Sync to the mark. | Player 2's line turns `manual · yaw …° · offset … m`; within a second player 1's says `synced by the other side`. The cubes now sit on the heads, on both devices. |
+| 5. Move the sliders on either device. | The cube shifts live there; about a second after the sliders rest, the other device follows: it is one alignment seen from both sides. |
 | 6. One leaves (Leave). | The other: `Waiting for others…`, the cube gone, the line back to `fallbackStage`. |
-| 7. Join again from the call. | Back to step 2's state; the previous calibration is not reused (a new join is a new participant). |
+| 7. Join again from the call. | Back to step 2's state; the previous alignment is not reused (a new join is a new participant), so mark and sync again. |
 
 Shared world anchors are not part of this test yet: the engine's world-anchor
 API is still on CoolSaber's engine branch, so `anchors:` shows `no anchor
-host`. When it lands, step 3 is expected to show `sharedAnchor` without the
-manual sync.
+host`. When it lands, step 3 is expected to say `sharedAnchor` without the
+mark and sync.
 
 ### B. Remote, over FaceTime (spatial Personas)
 
 | Step | Expected |
 |---|---|
-| 1. FaceTime call between the two headsets, Personas on. On both: run, Open space. | As A.1. |
-| 2. On one: Start SharePlay. On the other: accept. | Both: `spatial yes`, `nearby 0`; the space cycles on each. |
+| 1. FaceTime call between the two headsets, Personas on. On both: run. | As A.1. |
+| 2. On one: Start SharePlay. On the other: accept. Then on both: Open space. | Both: `spatial yes` before the space opens, `nearby 0`. |
 | 3. Look where the system seats the other Persona (conversational template). | A cube at the Persona's head, through `systemDisplacement`; `displacement` is not identity on at least one side. |
 | 4. Leave and rejoin as A.6 and A.7. | The same. |
 

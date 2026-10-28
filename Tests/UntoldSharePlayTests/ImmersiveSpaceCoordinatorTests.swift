@@ -160,7 +160,45 @@ final class ImmersiveSpaceCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.presentedEmpty)
     }
 
-    func testSessionDrivesTheCoordinator() async throws {
+    func testSessionDrivesTheCoordinatorJoinFirst() async throws {
+        let hub = LoopbackHub()
+        var configuration = SharePlaySession.Configuration()
+        configuration.stateRate = 200
+        let a = SharePlaySession(transport: hub.makeTransport(id: participantID(1)), configuration: configuration)
+        let b = SharePlaySession(transport: hub.makeTransport(id: participantID(2)), configuration: configuration)
+        let coordinator = ImmersiveSpaceCoordinator(id: "Arena")
+        coordinator.joinCycleGuard = 0
+        let space = FakeSpace()
+        space.bind(coordinator)
+        a.drive(coordinator)
+        a.startObserving()
+        b.startObserving()
+        _ = await a.start()
+        try await waitUntil { a.state == .joined && b.state == .joined }
+        let sessionA = try XCTUnwrap(hub.session(for: participantID(1)))
+
+        // Closed at the join, and at the group's request: stays closed, the player opens it.
+        sessionA.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: true, groupImmersion: .requested(.mixed)))
+        try await waitUntil { a.groupImmersion == .requested(.mixed) }
+        XCTAssertEqual(space.opens, 0)
+        XCTAssertEqual(coordinator.phase, .closed)
+
+        coordinator.open(reason: "button")
+        try await waitUntil { space.openPending }
+        space.finishOpen()
+        try await waitUntil { coordinator.phase == .open }
+
+        // The group leaves its space: dismissed.
+        sessionA.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: true, groupImmersion: .ended))
+        try await waitUntil { coordinator.phase == .closing }
+        try await waitUntil { space.dismissPending }
+        space.finishDismiss()
+        coordinator.spaceDidTearDown()
+        a.leave()
+        b.leave()
+    }
+
+    func testSessionCyclesASpaceThatWasOpenAtTheJoin() async throws {
         let hub = LoopbackHub()
         var configuration = SharePlaySession.Configuration()
         configuration.stateRate = 200
@@ -170,25 +208,46 @@ final class ImmersiveSpaceCoordinatorTests: XCTestCase {
         let space = FakeSpace()
         space.bind(coordinator)
         a.drive(coordinator)
+        coordinator.open(reason: "button") // before the session
+        try await waitUntil { space.openPending }
+        space.finishOpen()
+        try await waitUntil { coordinator.phase == .open }
+
+        a.startObserving()
+        b.startObserving()
+        _ = await a.start()
+        try await waitUntil { coordinator.phase == .closing } // the join cycles it
+        try await waitUntil { space.dismissPending }
+        space.finishDismiss()
+        coordinator.spaceDidTearDown()
+        try await waitUntil { space.opens == 2 } // reopened as the group's space
+        space.finishOpen()
+        try await waitUntil { coordinator.phase == .open }
+        a.leave()
+        b.leave()
+    }
+
+    func testSessionOpensOnRequestWhenAsked() async throws {
+        let hub = LoopbackHub()
+        var configuration = SharePlaySession.Configuration()
+        configuration.stateRate = 200
+        let a = SharePlaySession(transport: hub.makeTransport(id: participantID(1)), configuration: configuration)
+        let b = SharePlaySession(transport: hub.makeTransport(id: participantID(2)), configuration: configuration)
+        let coordinator = ImmersiveSpaceCoordinator(id: "Arena")
+        let space = FakeSpace()
+        space.bind(coordinator)
+        a.drive(coordinator, opensOnRequest: true)
         a.startObserving()
         b.startObserving()
         _ = await a.start()
         try await waitUntil { a.state == .joined && b.state == .joined }
-        try await waitUntil { space.openPending } // the join opened the space
-        space.finishOpen()
-        try await waitUntil { coordinator.phase == .open }
-        coordinator.joinCycleGuard = 0
+        XCTAssertEqual(space.opens, 0, "the join alone opens nothing")
         let sessionA = try XCTUnwrap(hub.session(for: participantID(1)))
         sessionA.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: true, groupImmersion: .requested(.mixed)))
-        try await waitUntil { coordinator.phase == .closing } // cycled to become shared
-        try await waitUntil { space.dismissPending }
-        space.finishDismiss()
-        coordinator.spaceDidTearDown()
-        try await waitUntil { space.opens == 2 }
+        try await waitUntil { space.openPending }
         space.finishOpen()
         try await waitUntil { coordinator.phase == .open }
-        sessionA.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: true, groupImmersion: .ended))
-        try await waitUntil { coordinator.phase == .closing }
         a.leave()
+        b.leave()
     }
 }

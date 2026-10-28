@@ -47,6 +47,31 @@ final class SessionFrameTests: XCTestCase {
         a.leave()
     }
 
+    func testMarkThenSyncAcrossSessions() async throws {
+        let (_, a, b) = makePair()
+        a.startObserving()
+        b.startObserving()
+        _ = await a.start()
+        try await waitUntil { a.others.count == 1 && b.others.count == 1 }
+        let idA = participantID(1), idB = participantID(2)
+
+        // A marks its spot (its head, 1.6 m up at its origin, facing -Z) and steps aside.
+        var head = matrix_identity_float4x4
+        head.columns.3 = SIMD4(0, 1.6, 0, 1)
+        a.frame.publishMark(localPose: head)
+        try await waitUntil { b.frame.mark(from: idA) != nil }
+        XCTAssertEqual(b.frame.mark(from: idA), head)
+
+        // B stands on it: 3 m ahead in B's frame, facing the same way.
+        let outcome = b.frame.calibrate(with: idA, localPoint: SIMD3(0, 1.6, -3), localHeading: SIMD3(0, 0, -1))
+        guard case .solved = outcome else { return XCTFail("\(outcome)") }
+        try await waitUntil { a.frame.alignment(of: idB) == .manual }
+        assertClose(b.frame.toLocal(point: .zero, from: idA), SIMD3(0, 0, -3))
+        assertClose(a.frame.toLocal(point: .zero, from: idB), SIMD3(0, 0, 3))
+        a.leave()
+        b.leave()
+    }
+
     func testFallbackSeatsFollowJoinOrder() async throws {
         let hub = LoopbackHub()
         var configuration = SharePlaySession.Configuration()

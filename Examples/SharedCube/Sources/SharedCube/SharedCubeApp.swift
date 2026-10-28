@@ -49,7 +49,7 @@ struct SharedCubeApp: App {
             ControlView(model: model)
         }
         .windowStyle(.plain)
-        .defaultSize(width: 560, height: 560)
+        .defaultSize(width: 640, height: 720)
 
         ImmersiveSpace(id: "SharedCube") {
             CubeSpace(model: model)
@@ -86,38 +86,57 @@ struct ControlView: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        let session = model.session
+        let frame = session.frame
+        let markedBy = session.others.first { frame.mark(from: $0.id) != nil }
+        let spaceOpen = model.coordinator.phase == .open
+        return VStack(alignment: .leading, spacing: 14) {
             Text("Shared Cube").font(.largeTitle).bold()
-            SharePlayStatusView(model.session)
-            Divider()
+
+            Text("1 · Share").font(.headline)
+            Text("Start SharePlay opens the system's sheet: a FaceTime call, or people nearby. Everyone joins first; then open the space.")
+                .font(.caption).foregroundStyle(.secondary)
+            SharePlayStatusView(session)
+
+            Text("2 · Who is here").font(.headline)
+            if session.others.isEmpty {
+                Text("Nobody else yet.").font(.caption)
+            }
+            ForEach(session.others) { participant in
+                Text("\(participant.id.uuidString.suffix(4)) · \(participant.isNearby ? "nearby" : "remote") · \(String(describing: frame.alignment(of: participant.id))) · \(frame.summary(of: participant.id))")
+                    .font(.caption)
+            }
+
+            Text("3 · Space").font(.headline)
             HStack {
                 Button("Open space") { model.coordinator.open(reason: "button") }
                     .disabled(model.coordinator.phase != .closed)
                 Button("Close space") { model.coordinator.dismiss(reason: "button") }
-                    .disabled(model.coordinator.phase != .open)
+                    .disabled(!spaceOpen)
                 Text("space: \(model.coordinator.phaseLabel)").font(.caption).foregroundStyle(.secondary)
             }
-            Divider()
             Text(model.controls.headSummary + " · \(model.controls.cubeCount) cube(s)").font(.caption)
-            ForEach(model.session.others) { participant in
-                Text("\(participant.id.uuidString.prefix(8)): \(model.session.frame.alignment(of: participant.id)) · \(model.session.frame.summary(of: participant.id))")
-                    .font(.caption)
-            }
-            Text("anchors: \(model.session.anchors.summary) · displacement \(model.session.frame.displacementSummary)").font(.caption)
+
+            Text("4 · Align, nearby").font(.headline)
+            Text("One player: stand on a spot, face a direction, tap Mark, step aside. The other: stand on that spot, face the same way, tap Sync. It is one alignment seen from both sides: the sliders move it for both players.")
+                .font(.caption).foregroundStyle(.secondary)
             HStack {
-                Button("Sync (stand together, face the same way)") { model.controls.requestCalibration() }
-                    .disabled(model.session.others.isEmpty)
-                Text(model.controls.lastCalibration).font(.caption)
+                Button("Mark my spot") { model.controls.requestMark() }
+                    .disabled(session.others.isEmpty || !spaceOpen)
+                Button(markedBy.map { "Sync to \($0.id.uuidString.suffix(4))'s mark" } ?? "Sync (no mark yet)") { model.controls.requestCalibration() }
+                    .disabled(markedBy == nil || !spaceOpen)
             }
-            if let other = model.session.others.first, model.session.frame.alignment(of: other.id) == .manual {
+            Text(model.controls.lastCalibration).font(.caption)
+            if let other = session.others.first, frame.alignment(of: other.id) == .manual {
                 VStack {
-                    Slider(value: Binding(get: { Double(nudge.x) }, set: { nudge.x = Float($0); model.session.frame.setNudge(nudge, for: other.id) }), in: -0.5 ... 0.5) { Text("side") }
-                    Slider(value: Binding(get: { Double(nudge.y) }, set: { nudge.y = Float($0); model.session.frame.setNudge(nudge, for: other.id) }), in: -0.5 ... 0.5) { Text("forward") }
+                    Slider(value: Binding(get: { Double(nudge.x) }, set: { nudge.x = Float($0); frame.setNudge(nudge, for: other.id) }), in: -0.5 ... 0.5) { Text("side") }
+                    Slider(value: Binding(get: { Double(nudge.y) }, set: { nudge.y = Float($0); frame.setNudge(nudge, for: other.id) }), in: -0.5 ... 0.5) { Text("forward") }
                 }
             }
+            Text("anchors: \(session.anchors.summary) · displacement \(frame.displacementSummary)").font(.caption)
             Spacer()
         }
-        .padding(32)
+        .padding(28)
     }
 }
 

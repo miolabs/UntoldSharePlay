@@ -216,19 +216,29 @@ public final class SharePlaySession {
         tickHandlers[id] = nil
     }
 
-    /// Opens the coordinator's space when the system asks for the group
-    /// immersive space, cycles it on the join (a space opened before the join
-    /// stays private), dismisses it when the group leaves its space.
-    public func drive(_ coordinator: ImmersiveSpaceCoordinator) {
+    /// Keeps the coordinator's space in step with the group. An open space is
+    /// cycled on the join, because a space opened before the join stays
+    /// private; the space is dismissed when the group leaves its space. A
+    /// closed space stays closed until the player opens it, once everyone has
+    /// joined, unless `opensOnRequest` is set: then the system's request for
+    /// the group immersive space opens it too.
+    public func drive(_ coordinator: ImmersiveSpaceCoordinator, opensOnRequest: Bool = false) {
         addEventHandler { event in
             switch event {
             case .joined:
-                coordinator.joinGroup(reason: "session joined")
+                if coordinator.phase != .closed {
+                    coordinator.joinGroup(reason: "session joined")
+                }
             case let .groupImmersionChanged(immersion):
                 switch immersion {
-                case .requested: coordinator.joinGroup(reason: "group immersion requested")
-                case .ended: coordinator.dismiss(reason: "group immersion ended")
-                case .notRequested: break
+                case .requested:
+                    if opensOnRequest || coordinator.phase != .closed {
+                        coordinator.joinGroup(reason: "group immersion requested")
+                    }
+                case .ended:
+                    coordinator.dismiss(reason: "group immersion ended")
+                case .notRequested:
+                    break
                 }
             default:
                 break
@@ -319,7 +329,14 @@ public final class SharePlaySession {
                 anchors.receiveAnnouncement(anchorID: id, from: received.sender)
             case .sharedAnchorRemoved:
                 anchors.receiveRemoval(from: received.sender)
+            case let .mark(pose):
+                frame.receiveMark(pose.matrix, from: received.sender)
+                SharePlayLog.info("mark received from \(received.sender)")
             }
+        }
+        if let mark = frame.takeOutgoingMark() {
+            frameChannel.send(.mark(pose: SharePlayMatrix(mark)))
+            SharePlayLog.info("mark sent")
         }
         let now = ProcessInfo.processInfo.systemUptime
         for sync in frame.takeOutgoingSyncs(now: now) {

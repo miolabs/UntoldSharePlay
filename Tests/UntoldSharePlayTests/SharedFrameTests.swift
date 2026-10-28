@@ -157,6 +157,32 @@ final class SharedFrameTests: XCTestCase {
         XCTAssertEqual(frame.localFromShared, matrix_identity_float4x4)
     }
 
+    func testCalibrationToAMarkUsesTheMarkedPoseRaw() {
+        let frame = SharedFrame()
+        XCTAssertEqual(frame.calibrate(with: other, localPoint: .zero, localHeading: SIMD3(0, 0, -1)), .failed("no mark from the other side yet"))
+        // The other player marked their spot: 1.6 m up at their origin, facing their -Z.
+        var mark = matrix_identity_float4x4
+        mark.columns.3 = SIMD4(0, 1.6, 0, 1)
+        frame.receiveMark(mark, from: other)
+        XCTAssertEqual(frame.mark(from: other), mark)
+        // We stand on that spot: in our frame it is 2 m ahead, same heading.
+        let outcome = frame.calibrate(with: other, localPoint: SIMD3(0, 1.6, -2), localHeading: SIMD3(0, 0, -1))
+        guard case let .solved(yaw, offset) = outcome else { return XCTFail("\(outcome)") }
+        XCTAssertEqual(yaw, 0, accuracy: 1e-3)
+        assertClose(offset, SIMD3(0, 0, -2))
+        assertClose(frame.toLocal(point: SIMD3(0, 1.6, 0), from: other), SIMD3(0, 1.6, -2))
+        XCTAssertEqual(frame.takeOutgoingSyncs(now: 0).count, 1)
+        // Our own mark goes out once, in the shared frame.
+        XCTAssertNil(frame.takeOutgoingMark())
+        var head = matrix_identity_float4x4
+        head.columns.3 = SIMD4(1, 1.6, -1, 1)
+        frame.publishMark(localPose: head)
+        XCTAssertEqual(frame.takeOutgoingMark(), head, "identity displacement: the mark is the local pose")
+        XCTAssertNil(frame.takeOutgoingMark())
+        frame.forget(other)
+        XCTAssertNil(frame.mark(from: other))
+    }
+
     func testCodableMatrixRoundTrip() throws {
         var matrix = simd_float4x4(simd_quatf(angle: 0.3, axis: SIMD3(0, 1, 0)))
         matrix.columns.3 = SIMD4(1, 2, 3, 1)

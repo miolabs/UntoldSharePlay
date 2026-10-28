@@ -96,6 +96,8 @@ public final class SharedFrame: @unchecked Sendable {
     private var sharesSystemFrame: Set<UUID> = []
     private var seats: [UUID: (seat: Int, count: Int)] = [:]
     private var pendingSyncs: [(participant: UUID, receiverFromSender: simd_float4x4)] = []
+    private var marks: [UUID: simd_float4x4] = [:]
+    private var pendingMark: simd_float4x4?
     private var fallbackStageStorage = FallbackStage()
 
     public init() {}
@@ -187,6 +189,47 @@ public final class SharedFrame: @unchecked Sendable {
         return .solved(yawDegrees: solved.yawDegrees, offset: offset)
     }
 
+    /// Marks this device's spot for the others: a pose in our local frame (the
+    /// head, a controller), sent on the wire as it is. Two people cannot put
+    /// their heads in one place at once, so they take turns: one marks and
+    /// steps aside, the other stands on the spot, faces the same way and
+    /// calibrates to the mark.
+    public func publishMark(localPose: simd_float4x4) {
+        lock.withLock { pendingMark = sharedFromARKit * localPose }
+    }
+
+    /// The participant's last mark, raw (their wire frame), if any.
+    public func mark(from participant: UUID) -> simd_float4x4? {
+        lock.withLock { marks[participant] }
+    }
+
+    /// Calibrates to the participant's mark: `localPoint` and `localHeading`
+    /// are ours while standing on the marked spot, facing the marked way.
+    public func calibrate(with participant: UUID, localPoint: SIMD3<Float>, localHeading: SIMD3<Float>) -> SharePlayCalibrationOutcome {
+        guard let mark = lock.withLock({ marks[participant] }) else {
+            return .failed("no mark from the other side yet")
+        }
+        let remotePoint = SIMD3<Float>(mark.columns.3.x, mark.columns.3.y, mark.columns.3.z)
+        let remoteHeading = -SIMD3<Float>(mark.columns.2.x, mark.columns.2.y, mark.columns.2.z)
+        return calibrate(
+            with: participant,
+            localPoint: localPoint, localHeading: localHeading,
+            remotePoint: remotePoint, remoteHeading: remoteHeading
+        )
+    }
+
+    func takeOutgoingMark() -> simd_float4x4? {
+        lock.withLock {
+            let mark = pendingMark
+            pendingMark = nil
+            return mark
+        }
+    }
+
+    func receiveMark(_ pose: simd_float4x4, from participant: UUID) {
+        lock.withLock { marks[participant] = pose }
+    }
+
     /// Fine tune after a calibration: x = side (right +), y = forward, metres,
     /// along the heading captured at calibration. Re-sent once it rests.
     public func setNudge(_ nudge: SIMD2<Float>, for participant: UUID) {
@@ -249,6 +292,7 @@ public final class SharedFrame: @unchecked Sendable {
             anchors[participant] = nil
             sharesSystemFrame.remove(participant)
             seats[participant] = nil
+            marks[participant] = nil
             pendingSyncs.removeAll { $0.participant == participant }
         }
     }
@@ -261,6 +305,8 @@ public final class SharedFrame: @unchecked Sendable {
             sharesSystemFrame.removeAll()
             seats.removeAll()
             pendingSyncs.removeAll()
+            marks.removeAll()
+            pendingMark = nil
             arkitFromShared = matrix_identity_float4x4
             sharedFromARKit = matrix_identity_float4x4
             displacementSummaryStorage = "identity"
