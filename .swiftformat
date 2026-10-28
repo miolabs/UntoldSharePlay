@@ -1,0 +1,4 @@
+--swiftversion 6.0
+# The engine's code keeps one-line if, loop and function bodies; these rules
+# arrived with SwiftFormat 0.61 and are not part of its style.
+--disable wrapIfStatementBodies,wrapLoopBodies,wrapFunctionBodies
