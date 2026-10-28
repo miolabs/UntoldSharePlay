@@ -19,17 +19,15 @@ final class CubeGame {
     private let frame: SharedFrame
     private let poses: SharePlayStateChannel<HeadPose>
     private let controls: CubeControls
-    private let others: @Sendable () -> [UUID]
     private var cubes: [UUID: EntityID] = [:]
     private var originMarker: EntityID?
     private var lastHead: simd_float4x4?
     private var lastSummaryUptime: TimeInterval = 0
 
-    init(frame: SharedFrame, poses: SharePlayStateChannel<HeadPose>, controls: CubeControls, others: @escaping @Sendable () -> [UUID]) {
+    init(frame: SharedFrame, poses: SharePlayStateChannel<HeadPose>, controls: CubeControls) {
         self.frame = frame
         self.poses = poses
         self.controls = controls
-        self.others = others
     }
 
     func start() {
@@ -93,7 +91,7 @@ final class CubeGame {
 
     private func placeCubes(now _: TimeInterval) {
         let latest = poses.latestAll()
-        let present = Set(others())
+        let present = Set(controls.others)
         for (participant, received) in latest where present.contains(participant) {
             let cube: EntityID
             if let existing = cubes[participant] {

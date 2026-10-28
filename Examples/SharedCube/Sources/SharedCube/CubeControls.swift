@@ -14,6 +14,7 @@ final class CubeControls: @unchecked Sendable {
     private var lastCalibrationStorage = "not calibrated"
     private var headSummaryStorage = "no head pose yet"
     private var cubeCountStorage = 0
+    private var othersStorage: [UUID] = []
 
     /// The window's Sync button: both players stand on one spot, facing the
     /// same way, then one taps Sync.
@@ -42,5 +43,12 @@ final class CubeControls: @unchecked Sendable {
     var cubeCount: Int {
         get { lock.withLock { cubeCountStorage } }
         set { lock.withLock { cubeCountStorage = newValue } }
+    }
+
+    /// The other participants, copied here on the main actor whenever the
+    /// session changes, so the render thread never touches the session.
+    var others: [UUID] {
+        get { lock.withLock { othersStorage } }
+        set { lock.withLock { othersStorage = newValue } }
     }
 }
