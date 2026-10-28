@@ -12,6 +12,7 @@
 import Foundation
 import GroupActivities
 import Observation
+import simd
 
 public enum SharePlayEvent: Sendable, Equatable {
     case joined(local: UUID)
@@ -19,6 +20,8 @@ public enum SharePlayEvent: Sendable, Equatable {
     case participantLeft(UUID)
     case hostChanged(UUID?)
     case spatialChanged(Bool)
+    /// The system's pose of this device in the shared frame changed (or went away).
+    case systemPoseChanged(SharePlayMatrix?)
     case groupImmersionChanged(SharePlayGroupImmersion)
     case left
     case invalidated(String)
@@ -62,6 +65,11 @@ public final class SharePlaySession {
     /// This device takes part in the shared spatial arrangement.
     public private(set) var isSpatial = false
     public private(set) var groupImmersion: SharePlayGroupImmersion = .notRequested
+    /// This device's pose in the group's shared frame, when the system gave one
+    /// (visionOS 26; at key events such as the sharing start, not per frame).
+    /// With the device's own pose at that moment it yields the local-from-shared
+    /// transform: `localPose × inverse(systemPose)`.
+    public private(set) var systemPose: simd_float4x4?
 
     public var isHost: Bool {
         hostID != nil && hostID == localParticipantID
@@ -83,6 +91,7 @@ public final class SharePlaySession {
     @ObservationIgnored private var tickHandlers: [UUID: @MainActor () -> Void] = [:]
     @ObservationIgnored private var joinedAt: [UUID: TimeInterval] = [:]
     @ObservationIgnored private var remoteSpatial: [UUID: Bool] = [:]
+    @ObservationIgnored private var remotePoses: [UUID: SharePlayMatrix] = [:]
 
     public init(transport: any SharePlayTransport, configuration: Configuration = Configuration()) {
         self.transport = transport
@@ -402,10 +411,12 @@ public final class SharePlaySession {
             joinedAt[participant.id] = joined
             let isLocal = participant.id == localParticipantID
             let spatial = isLocal ? isSpatial : (remoteSpatial[participant.id] ?? false)
-            next.append(SharePlayParticipant(
+            var entry = SharePlayParticipant(
                 id: participant.id, isLocal: isLocal, isNearby: participant.isNearby,
                 isSpatial: spatial, joinedAt: joined
-            ))
+            )
+            entry.systemPose = isLocal ? systemPose.map(SharePlayMatrix.init) : remotePoses[participant.id]
+            next.append(entry)
         }
         next.sort { lhs, rhs in
             lhs.joinedAt != rhs.joinedAt ? lhs.joinedAt < rhs.joinedAt : lhs.id.uuidString < rhs.id.uuidString
@@ -434,14 +445,22 @@ public final class SharePlaySession {
 
     private func apply(spatial update: SharePlaySpatialUpdate) {
         remoteSpatial = update.remoteIsSpatial
+        remotePoses = update.remotePoses
         if isSpatial != update.localIsSpatial {
             isSpatial = update.localIsSpatial
             SharePlayLog.info("spatial: \(isSpatial)")
             emit(.spatialChanged(isSpatial))
         }
+        let localPose = update.localPose?.matrix
+        if localPose != systemPose {
+            systemPose = localPose
+            SharePlayLog.info("system pose: \(localPose.map(SharedFrame.describe) ?? "none")")
+            emit(.systemPoseChanged(update.localPose))
+        }
         participants = participants.map { participant in
             var updated = participant
             updated.isSpatial = participant.isLocal ? update.localIsSpatial : (update.remoteIsSpatial[participant.id] ?? participant.isSpatial)
+            updated.systemPose = participant.isLocal ? update.localPose : update.remotePoses[participant.id]
             return updated
         }
         if groupImmersion != update.groupImmersion {
@@ -490,6 +509,8 @@ public final class SharePlaySession {
         participants.removeAll()
         joinedAt.removeAll()
         remoteSpatial.removeAll()
+        remotePoses.removeAll()
+        systemPose = nil
         localParticipantID = nil
         let hadHost = hostID != nil
         hostID = nil

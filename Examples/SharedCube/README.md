@@ -54,10 +54,20 @@ in the second column.
 | 6. One leaves (Leave). | The other: `Waiting for others…`, the cube gone, the line back to `fallbackStage`. |
 | 7. Join again from the call. | Back to step 2's state; the previous alignment is not reused (a new join is a new participant), so mark and sync again. |
 
-Shared world anchors are not part of this test yet: the engine's world-anchor
-API is still on CoolSaber's engine branch, so `anchors:` shows `no anchor
-host`. When it lands, step 3 is expected to say `sharedAnchor` without the
-mark and sync.
+Two automatic alignments are tried before the mark and sync, both from the
+room map the system builds when both players look at the same point:
+
+- **Shared world anchors** (the engine's `feature/xr_shared_world_anchors`
+  branch, which `project.yml` points at by path): each device places an anchor
+  at its origin, the others receive it in their own frame. Expected at step 3:
+  `anchors: own anchor … tracked` and the other's line `sharedAnchor`, the
+  cube on their head with no manual step.
+- **The system's participant pose** (`system pose:` in the window): if the
+  coordinator gives this device's pose in the shared frame, the game pairs it
+  with the device pose and the other's line says `systemDisplacement` with a
+  displacement that is not identity.
+
+If neither shows, note what the window says and go on to step 4.
 
 ### B. Remote, over FaceTime (spatial Personas)
 

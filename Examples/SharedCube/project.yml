@@ -15,11 +15,13 @@ options:
 packages:
   UntoldSharePlay:
     path: ../..
-  # The engine from the fork while the plugin lives there; for a local checkout
-  # use `path:` to a folder NAMED UntoldEngine.
+  # The engine with the shared world-anchor API, from the main checkout on
+  # feature/xr_shared_world_anchors (the folder must be NAMED UntoldEngine).
+  # Once that branch is in the fork's develop, go back to
+  #   url: https://github.com/miolabs/UntoldEngine.git
+  #   branch: develop
   UntoldEngine:
-    url: https://github.com/miolabs/UntoldEngine.git
-    branch: develop
+    path: /Users/godshadow/Projects/Untold/UntoldEngine
 schemes:
   SharedCube:
     build:

@@ -22,6 +22,7 @@ final class CubeGame {
     private var cubes: [UUID: EntityID] = [:]
     private var originMarker: EntityID?
     private var lastHead: simd_float4x4?
+    private var appliedSystemPose: simd_float4x4?
     private var lastSummaryUptime: TimeInterval = 0
 
     init(frame: SharedFrame, poses: SharePlayStateChannel<HeadPose>, controls: CubeControls) {
@@ -59,6 +60,7 @@ final class CubeGame {
                 controls.headSummary = String(format: "head (%.2f, %.2f, %.2f) m", p.x, p.y, p.z)
             }
         }
+        applySystemPoseIfNew()
         if controls.takeMarkRequest() {
             markSpot()
         }
@@ -66,6 +68,23 @@ final class CubeGame {
             calibrate()
         }
         placeCubes(now: now)
+    }
+
+    /// The system's pose of this device in the shared frame, paired with our
+    /// device pose now, is local-from-shared: the alignment the system built
+    /// when both players looked at the same point, if it gives one in our
+    /// space. Re-applied when the layer's own displacement (identity) reset it.
+    private func applySystemPoseIfNew() {
+        guard let systemPose = controls.systemPose, let head = lastHead else { return }
+        let fresh = appliedSystemPose == nil || appliedSystemPose != systemPose
+        guard fresh || frame.localFromShared == matrix_identity_float4x4 else { return }
+        let localFromShared = head * simd_inverse(systemPose)
+        frame.setSystemDisplacement(localFromShared, summary: "from the system's participant pose")
+        appliedSystemPose = systemPose
+        if fresh {
+            let t = localFromShared.columns.3
+            print(String(format: "SharedCube: system pose applied — local-from-shared offset (%.2f, %.2f, %.2f) m", t.x, t.y, t.z))
+        }
     }
 
     /// Mark my spot: our head pose, for the other player to stand on.

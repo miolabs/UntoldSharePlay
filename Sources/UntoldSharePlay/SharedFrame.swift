@@ -17,7 +17,7 @@ import Foundation
 import simd
 
 /// A rigid transform on the wire, as the four columns of a 4×4 matrix.
-public struct SharePlayMatrix: Codable, Equatable, Sendable {
+public struct SharePlayMatrix: Codable, Hashable, Sendable {
     public var columns: [SIMD4<Float>]
 
     public init(_ matrix: simd_float4x4) {

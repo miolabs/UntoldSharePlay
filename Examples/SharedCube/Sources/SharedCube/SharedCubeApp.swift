@@ -35,6 +35,7 @@ final class AppModel {
         let session = session
         session.addEventHandler { _ in
             controls.others = session.others.map(\.id)
+            controls.systemPose = session.systemPose
         }
     }
 }
@@ -134,6 +135,7 @@ struct ControlView: View {
                 }
             }
             Text("anchors: \(session.anchors.summary) · displacement \(frame.displacementSummary)").font(.caption)
+            Text("system pose: \(session.systemPose.map { String(format: "(%.2f, %.2f, %.2f) m", $0.columns.3.x, $0.columns.3.y, $0.columns.3.z) } ?? "none")").font(.caption)
             Spacer()
         }
         .padding(28)
@@ -156,6 +158,8 @@ struct CubeSpace: CompositorContent {
             guard let xr = UntoldEngineXR(layerRenderer: layerRenderer) else { return }
             CubeHolder.shared.xr = xr
             model.coordinator.spaceDidStart(rendering: true)
+            // Shared world anchors through the engine (the anchor branch).
+            model.session.anchors.attach(xr)
             xr.setImmersionMode(xrImmersionMode: .mixed)
 
             let game = CubeGame(frame: model.session.frame, poses: model.poses, controls: model.controls)
@@ -174,7 +178,9 @@ struct CubeSpace: CompositorContent {
                 // now (no deferred teardown: nothing finalizes once the loop has
                 // returned) and tell the coordinator, so the next open starts clean.
                 game.shutdown()
+                let session = model.session
                 Task { @MainActor in
+                    session.anchors.detach()
                     CubeHolder.shared.release()
                     coordinator.spaceDidTearDown()
                 }

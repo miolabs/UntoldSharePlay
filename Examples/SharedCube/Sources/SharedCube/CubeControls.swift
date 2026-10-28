@@ -16,6 +16,7 @@ final class CubeControls: @unchecked Sendable {
     private var headSummaryStorage = "no head pose yet"
     private var cubeCountStorage = 0
     private var othersStorage: [UUID] = []
+    private var systemPoseStorage: simd_float4x4?
 
     /// Mark my spot: our head pose goes to the others as the spot to stand on.
     func requestMark() {
@@ -63,5 +64,12 @@ final class CubeControls: @unchecked Sendable {
     var others: [UUID] {
         get { lock.withLock { othersStorage } }
         set { lock.withLock { othersStorage = newValue } }
+    }
+
+    /// The system's pose of this device in the shared frame, copied from the
+    /// session on the main actor; the game pairs it with the device pose.
+    var systemPose: simd_float4x4? {
+        get { lock.withLock { systemPoseStorage } }
+        set { lock.withLock { systemPoseStorage = newValue } }
     }
 }
