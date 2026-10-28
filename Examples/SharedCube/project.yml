@@ -1,0 +1,77 @@
+# The plugin's example: each participant's head as a cube in everyone's room,
+# over SharePlay, rendered by the engine through a CompositorLayer. Regenerate
+# the Xcode project from this folder with
+#
+#     xcodegen generate
+#
+# Signing: Config/Config.xcconfig composes the bundle identifier; the
+# gitignored Config/Local.xcconfig holds the team (copy Local.xcconfig.example).
+name: SharedCube
+options:
+  xcodeVersion: "27.0"
+  createIntermediateGroups: true
+  deploymentTarget:
+    visionOS: "26.0"
+packages:
+  UntoldSharePlay:
+    path: ../..
+  # The engine from the fork while the plugin lives there; for a local checkout
+  # use `path:` to a folder NAMED UntoldEngine.
+  UntoldEngine:
+    url: https://github.com/miolabs/UntoldEngine.git
+    branch: develop
+schemes:
+  SharedCube:
+    build:
+      targets:
+        SharedCube: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    archive:
+      config: Release
+targets:
+  SharedCube:
+    type: application
+    platform: visionOS
+    sources:
+      - path: Sources/SharedCube
+        excludes:
+          - "Info.plist"
+    dependencies:
+      - package: UntoldSharePlay
+        product: UntoldSharePlay
+      - package: UntoldEngine
+        product: UntoldEngine
+      - package: UntoldEngine
+        product: UntoldEngineXR
+    entitlements:
+      path: Sources/SharedCube/SharedCube.entitlements
+      properties:
+        com.apple.developer.group-session: true
+    info:
+      path: Sources/SharedCube/Info.plist
+      properties:
+        CFBundleDisplayName: Shared Cube
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSWorldSensingUsageDescription: "The engine reads the headset's pose through ARKit to render each frame and to share where you are with the other participants."
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UIApplicationPreferredDefaultSceneSessionRole: UIWindowSceneSessionRoleApplication
+        UIRequiredDeviceCapabilities:
+          - metal
+    configFiles:
+      Debug: Config/Config.xcconfig
+      Release: Config/Config.xcconfig
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "7"
+        GENERATE_INFOPLIST_FILE: false
+        CODE_SIGN_STYLE: Automatic
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: -Onone
+          DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
