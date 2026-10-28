@@ -6,9 +6,14 @@
 //  world anchors of visionOS 26, the system's way of handing the room map it
 //  built when both players looked at the same point to an app that renders
 //  its own space. Needs the engine's world-anchor API (the branch
-//  feature/xr_shared_world_anchors, CoolSaber's); project.yml points at it.
+//  feature/xr_shared_world_anchors, CoolSaber's), which the fork's develop
+//  does not have yet, so this file compiles only with the build flag
+//  SHAREDCUBE_WORLD_ANCHORS; project.yml says how to turn it on. Without it
+//  the example aligns by the system's participant pose, the mark and the
+//  sync, which is what the headset test passed with.
 //
 
+#if SHAREDCUBE_WORLD_ANCHORS
 import Foundation
 import simd
 import UntoldEngineXR
@@ -40,3 +45,4 @@ extension UntoldEngineXR: SharePlayWorldAnchorHost {
         }
     }
 }
+#endif

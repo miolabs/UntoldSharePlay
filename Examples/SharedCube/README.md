@@ -20,6 +20,13 @@ argument `--open-space` opens the space at launch (simulator runs from the
 command line); `--cycle-space` also closes and reopens it 8 s later, the way
 the join does.
 
+The shared world anchors (`CubeAnchors.swift`) are an opt-in: they need the
+engine's world-anchor API, still on its `feature/xr_shared_world_anchors`
+branch. `project.yml` says how to point the example at a checkout of it and
+set the `SHAREDCUBE_WORLD_ANCHORS` build flag. Without the flag the example
+aligns by the system's participant pose, the mark and the sync, which is what
+the nearby test passed with.
+
 ## What the window shows
 
 - The session's status row: Start SharePlay / Leave, the state, the
@@ -61,27 +68,41 @@ players look at the same point, before any mark and sync:
   coordinator's floor-level pose of this device in the shared frame, updated
   as the person moves; paired with the device pose on the floor it is the
   device's placement, announced to the others. This is what step 3 expects.
-- **Shared world anchors** (the engine's `feature/xr_shared_world_anchors`
-  branch, which `project.yml` points at by path): each device places an anchor
+- **Shared world anchors** (the opt-in above): each device places an anchor
   at its origin, the others receive it in their own frame; a device that
   received one hands the alignment back as a sync. Expected when they cross:
   `anchors: own anchor … tracked` and the other's line `sharedAnchor` or
-  `manual`. On the first runs the anchors did not cross; the pose did.
+  `manual`. On the runs so far the anchors did not cross; the pose did.
 
 If neither shows, note what the window says and go on to step 4.
 
-### B. Remote, over FaceTime (spatial Personas)
+**Result 2026-10-28:** step 3 passed on two headsets: both cubes on the
+heads with no manual step, by the system's participant pose.
+
+### B1. Remote, over FaceTime: the cube in our own render
+
+Two headsets in two rooms. Compositor Services draws no Personas, so inside
+the engine's space the other player is only their cube; this test is about
+that cube.
 
 | Step | Expected |
 |---|---|
-| 1. FaceTime call between the two headsets, Personas on. On both: run. | As A.1. |
-| 2. On one: Start SharePlay. On the other: accept. Then on both: Open space. | Both: `spatial yes` before the space opens, `nearby 0`. |
-| 3. Look where the system seats the other Persona (conversational template). | A cube at the Persona's head, through `systemDisplacement`; `displacement` is not identity on at least one side. |
-| 4. Leave and rejoin as A.6 and A.7. | The same. |
+| 1. FaceTime call between the two headsets. On both: run. | As A.1. |
+| 2. On one: Start SharePlay. On the other: accept. | Both windows: `Joined with 1 other participant`, `nearby 0`. Nothing opens by itself. |
+| 3. On both: Open space. | The other player's cube in our space, moving as they move their head. Note the alignment on their line: `fallbackStage` puts them 2 m ahead, facing us; `systemDisplacement` means the coordinator delivered a seat for them in our space (`our placement:` says from what). Mark and Sync make no sense across rooms; the sliders still nudge. |
+| 4. Walk, turn, crouch on one side. | The cube follows on the other side, at the right height and heading relative to its spot. |
+| 5. Leave and rejoin as A.6 and A.7. | The same. |
 
-No Persona is visible inside the engine's space (Compositor Services draws no
-Personas); the cube is the stand-in. That limit is the RealityKit presenter
-plan's business, not this test's.
+### B2. Remote, over FaceTime: the cube on the spatial Persona
+
+Needs the engine's RealityKit presenter (the hybrid of the Spatial Personas
+plan), which puts the engine's frame in a space the system can seat Personas
+in; it is not part of this gate. When it is in:
+
+| Step | Expected |
+|---|---|
+| 1. As B1.1 and B1.2, Personas on. | `spatial yes` on both before the space opens. |
+| 2. On both: Open space. Look at the other Persona. | The cube on the Persona's head, through `systemDisplacement`, where the system seated them (conversational template); `displacement` is not identity on at least one side. |
 
 ### C. Alone
 
@@ -93,5 +114,5 @@ plan's business, not this test's.
 ## What to report
 
 The `[SharePlay]` log of both devices for each section, the participant
-lines at steps A.3, A.4 and B.3, and how far the cube sat from the head
-before and after the sync. Open an issue on this repository with them.
+lines at steps A.3, A.4, B1.3 and B2.2, and how far the cube sat from the
+head before and after the sync. Open an issue on this repository with them.

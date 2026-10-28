@@ -15,13 +15,18 @@ options:
 packages:
   UntoldSharePlay:
     path: ../..
-  # The engine with the shared world-anchor API, from the main checkout on
-  # feature/xr_shared_world_anchors (the folder must be NAMED UntoldEngine).
-  # Once that branch is in the fork's develop, go back to
-  #   url: https://github.com/miolabs/UntoldEngine.git
-  #   branch: develop
+  # The engine from the fork's develop. For the shared world anchors
+  # (CubeAnchors.swift) it needs the world-anchor API, which is still on the
+  # engine branch feature/xr_shared_world_anchors: point this at a checkout of
+  # that branch (the folder must be NAMED UntoldEngine), for example
+  #   UntoldEngine:
+  #     path: ../../../UntoldEngine
+  # and under targets > SharedCube > settings > base add
+  #   SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) SHAREDCUBE_WORLD_ANCHORS
+  # then run xcodegen generate again.
   UntoldEngine:
-    path: /Users/godshadow/Projects/Untold/UntoldEngine
+    url: https://github.com/miolabs/UntoldEngine.git
+    branch: develop
 schemes:
   SharedCube:
     build:

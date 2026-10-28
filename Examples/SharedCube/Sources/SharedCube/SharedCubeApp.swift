@@ -157,8 +157,11 @@ struct CubeSpace: CompositorContent {
             guard let xr = UntoldEngineXR(layerRenderer: layerRenderer) else { return }
             CubeHolder.shared.xr = xr
             model.coordinator.spaceDidStart(rendering: true)
-            // Shared world anchors through the engine (the anchor branch).
+            // Shared world anchors through the engine, when the build has the
+            // API (CubeAnchors.swift); off, the frame aligns by the system pose.
+            #if SHAREDCUBE_WORLD_ANCHORS
             model.session.anchors.attach(xr)
+            #endif
             xr.setImmersionMode(xrImmersionMode: .mixed)
 
             let game = CubeGame(frame: model.session.frame, poses: model.poses, controls: model.controls)

@@ -10,7 +10,7 @@ It comes from three hand-written copies of the same code: CoolSaber's duel in [U
 |---|---|---|
 | 1 | The core: session, channels, participants and host election, status view, diagnostics, the transport seam with the GroupActivities and loopback transports; tests on macOS | **built** (PR #1) |
 | 2 | The shared frame (the system's displacement, shared world anchors, the manual calibration, the fallback stage), the immersive-space coordinator, the displacement modifier for a CompositorLayer, the `SharedCube` example | **built** (this branch); the engine side of the shared anchors waits for the engine's world-anchor API |
-| 2b | The headset test of stages 1 and 2 with `Examples/SharedCube` (nearby, FaceTime, alone): the protocol is in the example's README | **next**, before anything else |
+| 2b | The headset test of stages 1 and 2 with `Examples/SharedCube`: the protocol is in the example's README | nearby **passed 2026-10-28** (both cubes on the heads, no manual step); FaceTime with the cube only, and alone, **next**; FaceTime with the Persona waits for the engine's RealityKit presenter |
 | 3 | CoolSaber on the plugin (two headsets) | after the engine's world-anchor API ships |
 | 4 | Oche's SharePlay milestone on the core (RealityKit, no engine) | |
 | 5 | `untoldengine create --shareplay`, the engine docs page | **built** (engine fork PR miolabs/UntoldEngine#86) |
