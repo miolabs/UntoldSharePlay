@@ -48,29 +48,27 @@ in the second column.
 |---|---|
 | 1. On both: build and run. Do not open the space yet. | The window's four numbered sections. |
 | 2. On one: Start SharePlay; choose the other person from the nearby list. On the other: accept. | Both windows: `Joined with 1 other participant`, section 2 lists the other as `nearby`. Nothing opens by itself. |
-| 3. On both: Open space. | A small cube on the floor at each device's own origin. `spatial` turns `no` once the Metal space is open (the system does not seat a Compositor Services space), so the other's line says `systemDisplacement` with an identity displacement: their cube is at their raw position, most likely not on their head. |
+| 3. On both: Open space. | A small cube on the floor at each device's own origin. Within a few seconds `our placement:` reads `from the system pose …` on both, each other's line reads `systemDisplacement`, and the other player's cube sits on their head with no manual step. (`spatial` may flicker to `no` as the space opens; the system pose comes back.) |
 | 4. Player 1: stand on a spot, face a direction, tap Mark my spot, step aside. Player 2: stand on that spot, face the same way, tap Sync to the mark. | Player 2's line turns `manual · yaw …° · offset … m`; within a second player 1's says `synced by the other side`. The cubes now sit on the heads, on both devices. |
 | 5. Move the sliders on either device. | The cube shifts live there; about a second after the sliders rest, the other device follows: it is one alignment seen from both sides. |
 | 6. One leaves (Leave). | The other: `Waiting for others…`, the cube gone, the line back to `fallbackStage`. |
 | 7. Join again from the call. | Back to step 2's state; the previous alignment is not reused (a new join is a new participant), so mark and sync again. |
 
-Two automatic alignments are tried before the mark and sync, both from the
-room map the system builds when both players look at the same point:
+Two automatic alignments come from the room map the system builds when both
+players look at the same point, before any mark and sync:
 
+- **The system's participant pose** (`system pose:` in the window): the
+  coordinator's floor-level pose of this device in the shared frame, updated
+  as the person moves; paired with the device pose on the floor it is the
+  device's placement, announced to the others. This is what step 3 expects.
 - **Shared world anchors** (the engine's `feature/xr_shared_world_anchors`
   branch, which `project.yml` points at by path): each device places an anchor
-  at its origin, the others receive it in their own frame. Expected at step 3:
-  `anchors: own anchor … tracked` and the other's line `sharedAnchor`, the
-  cube on their head with no manual step.
-- **One direction is enough:** a device that received the other's anchor
-  hands the alignment back as a sync, so the other's line says `manual` if
-  its own anchor never arrived. Both lines should end up on the heads.
-- **The system's participant pose** (`system pose:` in the window) is only
-  shown for now: whether the coordinator gives one in our space is still an
-  open question; it is not applied.
+  at its origin, the others receive it in their own frame; a device that
+  received one hands the alignment back as a sync. Expected when they cross:
+  `anchors: own anchor … tracked` and the other's line `sharedAnchor` or
+  `manual`. On the first runs the anchors did not cross; the pose did.
 
-If no anchor shows on either side, note what the window says and go on to
-step 4.
+If neither shows, note what the window says and go on to step 4.
 
 ### B. Remote, over FaceTime (spatial Personas)
 

@@ -133,7 +133,7 @@ struct ControlView: View {
                     Slider(value: Binding(get: { Double(nudge.y) }, set: { nudge.y = Float($0); frame.setNudge(nudge, for: other.id) }), in: -0.5 ... 0.5) { Text("forward") }
                 }
             }
-            Text("anchors: \(session.anchors.summary) · displacement \(frame.displacementSummary)").font(.caption)
+            Text("anchors: \(session.anchors.summary) · our placement: \(frame.displacementSummary)").font(.caption)
             Text("system pose: \(session.systemPose.map { String(format: "(%.2f, %.2f, %.2f) m", $0.columns.3.x, $0.columns.3.y, $0.columns.3.z) } ?? "none")").font(.caption)
             Spacer()
         }

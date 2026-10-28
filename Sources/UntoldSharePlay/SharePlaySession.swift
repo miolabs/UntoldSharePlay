@@ -341,7 +341,14 @@ public final class SharePlaySession {
             case let .mark(pose):
                 frame.receiveMark(pose.matrix, from: received.sender)
                 SharePlayLog.info("mark received from \(received.sender)")
+            case let .placement(sharedFromLocal):
+                frame.receivePlacement(sharedFromLocal: sharedFromLocal.matrix, from: received.sender)
+                SharePlayLog.info("placement received from \(received.sender): \(frame.summary(of: received.sender))")
             }
+        }
+        if let placement = frame.takeOutgoingPlacement() {
+            frameChannel.send(.placement(sharedFromLocal: SharePlayMatrix(placement)))
+            SharePlayLog.info("placement sent: \(frame.displacementSummary)")
         }
         if let mark = frame.takeOutgoingMark() {
             frameChannel.send(.mark(pose: SharePlayMatrix(mark)))
@@ -434,6 +441,7 @@ public final class SharePlaySession {
             let nearby = incoming.first { $0.id == id }?.isNearby ?? false
             SharePlayLog.info("participant joined: \(id), nearby \(nearby)")
             anchors.participantJoined(id)
+            frame.markPlacementForReannouncement()
             emit(.participantJoined(id))
         }
         if state == .joined {
@@ -454,7 +462,8 @@ public final class SharePlaySession {
         let localPose = update.localPose?.matrix
         if localPose != systemPose {
             systemPose = localPose
-            SharePlayLog.info("system pose: \(localPose.map(SharedFrame.describe) ?? "none")")
+            frame.setSystemPose(localPose)
+            SharePlayLog.info("system pose: \(localPose.map(SharedFrame.describe) ?? "none") → placement \(frame.displacementSummary)")
             emit(.systemPoseChanged(update.localPose))
         }
         participants = participants.map { participant in

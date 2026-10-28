@@ -32,30 +32,91 @@ final class SharedFrameTests: XCTestCase {
         XCTAssertTrue(frame.summary(of: other).contains("seat 3 of 3"))
     }
 
-    func testSystemDisplacementMapsBothWays() {
+    func testSystemPlacementsComposeOursWithTheirs() {
         let frame = SharedFrame()
-        var arkitFromShared = simd_float4x4(simd_quatf(angle: .pi / 2, axis: SIMD3(0, 1, 0)))
-        arkitFromShared.columns.3 = SIMD4(1, 0, -3, 1)
-        frame.setSystemDisplacement(arkitFromShared)
-        XCTAssertEqual(frame.localFromShared, arkitFromShared)
+        var localFromShared = simd_float4x4(simd_quatf(angle: .pi / 2, axis: SIMD3(0, 1, 0)))
+        localFromShared.columns.3 = SIMD4(1, 0, -3, 1)
+        frame.setSystemDisplacement(localFromShared)
+        XCTAssertTrue(frame.hasPlacement)
+        assertClose(point(frame.localFromShared, .zero), SIMD3(1, 0, -3))
+        assertClose(point(frame.sharedFromLocal * localFromShared, SIMD3(0.3, 1.6, -0.5)), SIMD3(0.3, 1.6, -0.5))
         XCTAssertTrue(frame.displacementSummary.contains("yaw"))
+        XCTAssertEqual(frame.takeOutgoingPlacement(), frame.sharedFromLocal, "announced once")
+        XCTAssertNil(frame.takeOutgoingPlacement())
 
-        // Our pose stripped of the displacement, then put back, is itself.
-        var local = matrix_identity_float4x4
-        local.columns.3 = SIMD4(0.3, 1.6, -0.5, 1)
-        let shared = frame.toShared(local)
-        assertClose(point(arkitFromShared * shared, .zero), SIMD3(0.3, 1.6, -0.5))
-        // A spatial participant's shared pose lands through the displacement.
+        // Nearby, but their placement unknown: still the fallback.
         frame.setSharesSystemFrame(true, for: other)
+        XCTAssertEqual(frame.alignment(of: other), .fallbackStage)
+        XCTAssertTrue(frame.summary(of: other).contains("their placement unknown"))
+        // Their placement: their local is the shared frame itself.
+        frame.receivePlacement(sharedFromLocal: matrix_identity_float4x4, from: other)
         XCTAssertEqual(frame.alignment(of: other), .systemDisplacement)
         assertClose(frame.toLocal(point: .zero, from: other), SIMD3(1, 0, -3))
+        // Their placement 2 m along shared +X: their origin lands there.
+        var theirs = matrix_identity_float4x4
+        theirs.columns.3 = SIMD4(2, 0, 0, 1)
+        frame.receivePlacement(sharedFromLocal: theirs, from: other)
+        assertClose(frame.toLocal(point: .zero, from: other), point(localFromShared, SIMD3(2, 0, 0)))
         frame.setSharesSystemFrame(false, for: other)
         XCTAssertEqual(frame.alignment(of: other), .fallbackStage)
+        XCTAssertTrue(frame.summary(of: other).contains("not spatial, not nearby"))
+    }
+
+    func testFloorPoseKeepsPositionAndYawOnly() {
+        // A head 1.6 m up, pitched down, facing +X.
+        var head = simd_float4x4(simd_quatf(angle: -.pi / 2, axis: SIMD3(0, 1, 0)))
+        head = head * simd_float4x4(simd_quatf(angle: 0.4, axis: SIMD3(1, 0, 0)))
+        head.columns.3 = SIMD4(2, 1.6, -1, 1)
+        let floor = SharedFrame.floorPose(head)
+        assertClose(point(floor, .zero), SIMD3(2, 0, -1))
+        assertClose(SharedFrame.transform(direction: SIMD3(0, 0, -1), by: floor), SIMD3(1, 0, 0), accuracy: 1e-3)
+        assertClose(SharedFrame.transform(direction: SIMD3(0, 1, 0), by: floor), SIMD3(0, 1, 0))
+    }
+
+    func testSystemPosePairedOnTheFloorGivesThePlacement() {
+        let frame = SharedFrame()
+        XCTAssertFalse(frame.hasPlacement)
+        // The system says we stand 2 m along shared -Z, facing shared +Z (back
+        // at the origin); our device is 1.7 m up at our origin, facing our -Z.
+        var systemPose = simd_float4x4(simd_quatf(angle: .pi, axis: SIMD3(0, 1, 0)))
+        systemPose.columns.3 = SIMD4(0, 0, -2, 1)
+        var device = matrix_identity_float4x4
+        device.columns.3 = SIMD4(0, 1.7, 0, 1)
+        frame.setSystemPose(systemPose)
+        XCTAssertFalse(frame.hasPlacement, "no device pose yet")
+        frame.updateDevicePose(device)
+        XCTAssertTrue(frame.hasPlacement)
+        // Our origin, in the shared frame, is where the system put us; the
+        // head's height never enters it.
+        assertClose(point(frame.sharedFromLocal, .zero), SIMD3(0, 0, -2))
+        assertClose(SharedFrame.transform(direction: SIMD3(0, 0, -1), by: frame.sharedFromLocal), SIMD3(0, 0, 1), accuracy: 1e-3)
+        assertClose(point(frame.sharedFromLocal, SIMD3(0, 1.7, 0)), SIMD3(0, 1.7, -2))
+        XCTAssertNotNil(frame.takeOutgoingPlacement())
+        // A head that only bobbed: no new placement; a step: a new one.
+        var bobbed = device
+        bobbed.columns.3 = SIMD4(0.005, 1.65, 0, 1)
+        frame.updateDevicePose(bobbed)
+        XCTAssertNil(frame.takeOutgoingPlacement())
+        var stepped = device
+        stepped.columns.3 = SIMD4(0.5, 1.7, 0, 1)
+        frame.updateDevicePose(stepped)
+        XCTAssertNotNil(frame.takeOutgoingPlacement(), "the pairing follows the pose")
+        // The pose going away clears a pose-based placement; the space's own
+        // displacement wins once it exists and outlives the session.
+        frame.setSystemPose(nil)
+        XCTAssertFalse(frame.hasPlacement)
+        frame.setSystemDisplacement(matrix_identity_float4x4)
+        frame.setSystemPose(systemPose)
+        XCTAssertEqual(frame.sharedFromLocal, matrix_identity_float4x4)
+        frame.reset()
+        XCTAssertTrue(frame.hasPlacement)
     }
 
     func testSharedAnchorWinsOverDisplacementAndSurvivesTrackingLoss() {
         let frame = SharedFrame()
         frame.setSharesSystemFrame(true, for: other)
+        frame.setSystemDisplacement(matrix_identity_float4x4)
+        frame.receivePlacement(sharedFromLocal: matrix_identity_float4x4, from: other)
         var localFromOther = matrix_identity_float4x4
         localFromOther.columns.3 = SIMD4(2, 0, 0, 1)
         frame.setAnchor(localFromParticipant: localFromOther, tracked: true, summary: "shared anchor tracked", for: other)
@@ -152,9 +213,6 @@ final class SharedFrameTests: XCTestCase {
         XCTAssertTrue(frame.summary(of: other).contains("synced by the other side"))
         frame.forget(other)
         XCTAssertEqual(frame.alignment(of: other), .fallbackStage)
-        frame.setSystemDisplacement(localFromOther)
-        frame.reset()
-        XCTAssertEqual(frame.localFromShared, matrix_identity_float4x4)
     }
 
     func testCalibrationToAMarkUsesTheMarkedPoseRaw() {

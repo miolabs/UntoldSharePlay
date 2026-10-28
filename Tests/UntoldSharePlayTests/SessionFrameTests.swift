@@ -102,7 +102,8 @@ final class SessionFrameTests: XCTestCase {
         try await waitUntil { a.others.count == 1 && b.others.count == 1 }
         let idA = participantID(1), idB = participantID(2)
         XCTAssertTrue(a.others[0].isNearby)
-        XCTAssertEqual(a.frame.alignment(of: idB), .systemDisplacement, "nearby: the system's frame until an anchor arrives")
+        XCTAssertEqual(a.frame.alignment(of: idB), .fallbackStage, "nearby, but no placement known on either side yet")
+        XCTAssertTrue(a.frame.summary(of: idB).contains("our placement unknown"))
         try await waitUntil { hostA.added.count == 1 && hostB.added.count == 1 }
 
         // ARKit reports A's own anchor; A announces it; B receives the
@@ -132,23 +133,34 @@ final class SessionFrameTests: XCTestCase {
         b.leave()
     }
 
-    func testSpatialParticipantsShareTheSystemFrame() async throws {
+    func testSystemPlacementsAreAnnouncedAndComposedAcrossSessions() async throws {
         let (hub, a, b) = makePair()
         a.startObserving()
         b.startObserving()
         _ = await a.start()
         try await waitUntil { a.others.count == 1 && b.others.count == 1 }
         let idB = participantID(2)
+        let sessionA = try XCTUnwrap(hub.session(for: participantID(1)))
+        sessionA.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: true, remoteIsSpatial: [idB: true], groupImmersion: .requested(.mixed)))
+        let sessionB = try XCTUnwrap(hub.session(for: idB))
+        sessionB.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: true, remoteIsSpatial: [participantID(1): true], groupImmersion: .requested(.mixed)))
+        try await waitUntil { a.others.first?.isSpatial == true && b.others.first?.isSpatial == true }
+        XCTAssertEqual(a.frame.alignment(of: idB), .fallbackStage, "nothing placed yet")
+
+        // A's space is displaced by the system, 4 m along shared -Z; B's scene is the shared frame.
         var displacement = matrix_identity_float4x4
         displacement.columns.3 = SIMD4(0, 0, -4, 1)
         a.frame.setSystemDisplacement(displacement)
-        XCTAssertEqual(a.frame.alignment(of: idB), .fallbackStage)
-        let sessionA = try XCTUnwrap(hub.session(for: participantID(1)))
-        sessionA.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: true, remoteIsSpatial: [idB: true], groupImmersion: .requested(.mixed)))
+        b.frame.setSystemDisplacement(matrix_identity_float4x4)
         try await waitUntil { a.frame.alignment(of: idB) == .systemDisplacement }
         assertClose(a.frame.toLocal(point: .zero, from: idB), SIMD3(0, 0, -4))
+        try await waitUntil { b.frame.alignment(of: participantID(1)) == .systemDisplacement }
+        assertClose(b.frame.toLocal(point: .zero, from: participantID(1)), SIMD3(0, 0, 4))
+
+        // B is no longer spatial with A: back to the fallback on A's side.
         sessionA.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: true, remoteIsSpatial: [idB: false], groupImmersion: .requested(.mixed)))
         try await waitUntil { a.frame.alignment(of: idB) == .fallbackStage }
         a.leave()
+        b.leave()
     }
 }

@@ -98,12 +98,30 @@ Starting: `await session.start()` runs the system's share flow (`prepareForActiv
 
 ### The shared frame
 
-Two frames: *shared*, the group's immersive-space frame, identical on every spatial or nearby device, which is what goes on the wire; and *local*, the frame the game simulates in: ARKit's world frame on the engine path, the scene's frame on a RealityView space (already the shared frame). Per remote participant one mapping is in force, by precedence: the manual calibration the players solved, then the participant's shared world anchor (nearby), then the system's displacement (spatial with us, or nearby), then a fallback stage pose (remote and not spatial: a row 2 m ahead, facing us, 0.8 m apart, in join order).
+Every device publishes poses in its own local frame, as they are: ARKit's
+world frame on the engine path, the scene's frame on a RealityView space.
+Each device also announces its *placement* in the group's shared frame when
+it knows one, and the receiver maps a participant's poses into its own frame
+by one of four alignments, in this order of precedence:
+
+1. **Manual**: the calibration the players solved (a mark, or one point both
+   can touch), wins over everything.
+2. **Shared anchor**: the participant's shared world anchor, placed at their
+   origin (nearby, visionOS 26, through the engine's world-anchor API).
+3. **System placements**: ours composed with theirs. A placement comes from
+   SwiftUI's `immersiveSpaceDisplacement` when the system moved our space, or
+   from the system coordinator's pose of this device in the shared frame (a
+   floor-level position and heading, updated as the person moves), paired with
+   the device pose on the floor. In a Compositor Services space the system
+   leaves the displacement at identity, so the pose is what aligns nearby
+   devices; the headsets confirmed it is delivered there.
+4. **Fallback stage**: a row 2 m ahead, facing us, 0.8 m apart, in join order.
 
 ```swift
-// Before publishing: our local pose in the shared frame.
-poses.publish(Poses(head: session.frame.toShared(head)))
-// After receiving: the participant's wire pose in our local frame.
+// Every frame, on the render thread: the device pose pairs with the system's pose of us.
+session.frame.updateDevicePose(head)
+poses.publish(Poses(head: head))                               // our local frame, as it is
+// After receiving: the participant's pose in our local frame, by the alignment in force.
 let local = session.frame.toLocal(received.message.head, from: participant)
 session.frame.alignment(of: participant)      // .manual, .sharedAnchor, .systemDisplacement, .fallbackStage
 session.frame.summary(of: participant)        // for a diagnostics row
@@ -112,8 +130,8 @@ session.frame.fallbackStage = .init(distance: 2, spacing: 0.8)
 // A CompositorLayer app feeds the system's displacement (visionOS 26):
 CompositorLayer(configuration: config) { layerRenderer in ... }
     .sharePlayFrame(session)
-// A RealityView app does nothing: scene coordinates are the shared frame;
-// ARKit-sourced poses (hands, anchors) go through session.frame.sharedFromLocal.
+// A RealityView app's scene is the shared frame: say so once.
+session.frame.setSystemDisplacement(matrix_identity_float4x4)
 
 // The manual calibration, with marks: one player marks their spot (a pose in
 // their local frame, the head or a controller) and steps aside; the other
@@ -128,12 +146,7 @@ session.frame.calibrate(with: participant, localPoint: p, localHeading: h, remot
 session.frame.setNudge(SIMD2(side, forward), for: participant)   // fine tune; one alignment for both sides, re-sent once it rests 0.3 s
 ```
 
-In a Compositor Services space the system reports the device as not spatial
-and leaves the displacement at identity for nearby participants (both seen
-on the headsets), so until the engine's shared world anchors are in, nearby
-alignment is the mark and sync.
-
-Shared world anchors (visionOS 26, nearby participants): the session places this device's anchor at its origin as soon as someone nearby is in the session, announces its id on its own channel, and maps every other participant's anchor into the frame. This needs a world-tracking host: `session.anchors.attach(host)` with a `SharePlayWorldAnchorHost` (four methods: add a shared anchor, remove it, observe updates, stop observing). The engine's XR runtime conforms once its world-anchor API ships; until then a game on CoolSaber's engine branch writes the 20-line conformance itself.
+Shared world anchors (visionOS 26, nearby participants): the session places this device's anchor at its origin as soon as someone nearby is in the session, announces its id on its own channel, and maps every other participant's anchor into the frame; a device that received the other's anchor hands the alignment back as a sync, so one working direction aligns both. This needs a world-tracking host: `session.anchors.attach(host)` with a `SharePlayWorldAnchorHost` (four methods: add a shared anchor, remove it, observe updates, stop observing). The engine's XR runtime conforms once its world-anchor API ships; until then a game on CoolSaber's engine branch writes the 20-line conformance itself (`Examples/SharedCube/Sources/SharedCube/CubeAnchors.swift`).
 
 ### The immersive space
 

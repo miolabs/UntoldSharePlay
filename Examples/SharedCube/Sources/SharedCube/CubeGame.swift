@@ -52,7 +52,8 @@ final class CubeGame {
         let now = ProcessInfo.processInfo.systemUptime
         if let head = xr.currentDevicePose {
             lastHead = head
-            poses.publish(HeadPose(matrix: SharePlayMatrix(frame.toShared(head))))
+            frame.updateDevicePose(head) // pairs with the system's pose of this device
+            poses.publish(HeadPose(matrix: SharePlayMatrix(head))) // our local frame, as it is
             if now - lastSummaryUptime > 1 {
                 lastSummaryUptime = now
                 let p = head.columns.3
