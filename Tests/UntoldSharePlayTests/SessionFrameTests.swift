@@ -118,6 +118,10 @@ final class SessionFrameTests: XCTestCase {
         hostB.report(SharePlayAnchorUpdate(id: anchorA, localFromAnchor: pose, isTracked: true, isShared: true, isOwn: false, event: .added))
         try await waitUntil { b.frame.alignment(of: idA) == .sharedAnchor }
         assertClose(b.frame.toLocal(point: .zero, from: idA), SIMD3(1.5, 0, 0))
+        // B hands the alignment to A, whose own anchor never reached B's side here:
+        // A now maps B through a manual solution that is the inverse.
+        try await waitUntil { a.frame.alignment(of: idB) == .manual }
+        assertClose(a.frame.toLocal(point: .zero, from: idB), SIMD3(-1.5, 0, 0))
 
         // A leaves: B's mapping for A goes, and B's own anchor is removed
         // since nobody nearby remains.

@@ -107,8 +107,18 @@ final class SharedAnchorTrackerTests: XCTestCase {
         XCTAssertEqual(frame.toLocal(point: .zero, from: b), SIMD3(2, 0, 0))
         XCTAssertEqual(frame.alignment(of: c), .fallbackStage)
 
+        // The alignment is handed to its owner as a sync: once, then only when it moved.
+        var syncs = frame.takeOutgoingSyncs(now: 0)
+        XCTAssertEqual(syncs.count, 1)
+        XCTAssertEqual(syncs[0].participant, b)
+        XCTAssertEqual(SharedFrame.transform(point: SIMD3(2, 0, 0), by: syncs[0].receiverFromSender), .zero, "their local-from-us is the inverse")
+        host.report(update(anchorB, x: 2.001, event: .updated))
+        XCTAssertTrue(frame.takeOutgoingSyncs(now: 0).isEmpty, "a millimetre is not a move")
+
         // Updates keep flowing to the owner; a tracking loss keeps the pose.
         host.report(update(anchorB, x: 2.5, event: .updated))
+        syncs = frame.takeOutgoingSyncs(now: 0)
+        XCTAssertTrue(syncs.isEmpty, "throttled to once a second")
         XCTAssertEqual(frame.toLocal(point: .zero, from: b), SIMD3(2.5, 0, 0))
         host.report(update(anchorB, x: 2.5, tracked: false, event: .updated))
         XCTAssertTrue(frame.summary(of: b).contains("NOT tracked"))

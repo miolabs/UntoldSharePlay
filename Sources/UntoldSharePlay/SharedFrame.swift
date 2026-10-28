@@ -218,6 +218,12 @@ public final class SharedFrame: @unchecked Sendable {
         )
     }
 
+    /// An alignment found on this side (a shared anchor) handed to the other:
+    /// their local-from-us, so one working direction aligns both.
+    func queueSync(for participant: UUID, receiverFromSender: simd_float4x4) {
+        lock.withLock { pendingSyncs.append((participant, receiverFromSender)) }
+    }
+
     func takeOutgoingMark() -> simd_float4x4? {
         lock.withLock {
             let mark = pendingMark

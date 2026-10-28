@@ -35,7 +35,6 @@ final class AppModel {
         let session = session
         session.addEventHandler { _ in
             controls.others = session.others.map(\.id)
-            controls.systemPose = session.systemPose
         }
     }
 }

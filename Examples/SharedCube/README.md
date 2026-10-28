@@ -62,12 +62,15 @@ room map the system builds when both players look at the same point:
   at its origin, the others receive it in their own frame. Expected at step 3:
   `anchors: own anchor … tracked` and the other's line `sharedAnchor`, the
   cube on their head with no manual step.
-- **The system's participant pose** (`system pose:` in the window): if the
-  coordinator gives this device's pose in the shared frame, the game pairs it
-  with the device pose and the other's line says `systemDisplacement` with a
-  displacement that is not identity.
+- **One direction is enough:** a device that received the other's anchor
+  hands the alignment back as a sync, so the other's line says `manual` if
+  its own anchor never arrived. Both lines should end up on the heads.
+- **The system's participant pose** (`system pose:` in the window) is only
+  shown for now: whether the coordinator gives one in our space is still an
+  open question; it is not applied.
 
-If neither shows, note what the window says and go on to step 4.
+If no anchor shows on either side, note what the window says and go on to
+step 4.
 
 ### B. Remote, over FaceTime (spatial Personas)
 
