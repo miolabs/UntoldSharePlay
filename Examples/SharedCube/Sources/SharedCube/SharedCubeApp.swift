@@ -29,6 +29,13 @@ final class AppModel {
         }
         poses = session.stateChannel(HeadPose.self)
         session.drive(coordinator)
+        // The render thread must never touch the session (a main-actor object):
+        // the game reads the participant list from the controls, copied here.
+        let controls = controls
+        let session = session
+        session.addEventHandler { _ in
+            controls.others = session.others.map(\.id)
+        }
     }
 }
 
@@ -55,10 +62,25 @@ struct ControlView: View {
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
     @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var nudge = SIMD2<Float>(0, 0)
-    @State private var tick = 0
     let model: AppModel
 
     var body: some View {
+        // Once a second, so the frame's and the anchors' summaries (plain
+        // lock-guarded values, not observable) read fresh.
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            content
+        }
+        .task {
+            model.coordinator.bind(open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
+            model.session.startObserving()
+            // `--open-space` opens the immersive space at launch (simulator runs).
+            if CommandLine.arguments.contains("--open-space") {
+                model.coordinator.open(reason: "launch argument")
+            }
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Shared Cube").font(.largeTitle).bold()
             SharePlayStatusView(model.session)
@@ -91,16 +113,6 @@ struct ControlView: View {
             Spacer()
         }
         .padding(32)
-        .task {
-            model.coordinator.bind(open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
-            model.session.startObserving()
-            // Refresh the frame's read-only summaries once a second.
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                tick += 1
-            }
-        }
-        .id(tick)
     }
 }
 
@@ -122,10 +134,7 @@ struct CubeSpace: CompositorContent {
             model.coordinator.spaceDidStart(rendering: true)
             xr.setImmersionMode(xrImmersionMode: .mixed)
 
-            let session = model.session
-            let game = CubeGame(frame: session.frame, poses: model.poses, controls: model.controls, others: { [weak session] in
-                MainActor.assumeIsolated { session?.others.map(\.id) ?? [] }
-            })
+            let game = CubeGame(frame: model.session.frame, poses: model.poses, controls: model.controls)
             CubeHolder.shared.game = game
             game.start()
             xr.setupCallbacks(

@@ -15,7 +15,9 @@ open SharedCube.xcodeproj
 
 visionOS 26 (the `CompositorContent` API). The engine comes from the fork's
 `develop`; the plugin from this repository by path. Run on a Vision Pro: the
-simulator builds and opens the space, but has no SharePlay.
+simulator builds and opens the space, but has no SharePlay. The launch
+argument `--open-space` opens the space at launch (simulator runs from the
+command line).
 
 ## What the window shows
 
