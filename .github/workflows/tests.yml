@@ -1,11 +1,12 @@
 name: Tests
 
-# Run by hand only, for now: on the macos-26 image (Xcode 26.6, Swift 6.3.3)
-# one source file sends the compiler into an endless type-check, so every
-# automatic run sat in `swift build` until GitHub cancelled it at six hours.
-# Back to push and pull_request once that file is fixed (the diagnosis is on
-# the branch ci/build_hang).
+# On every push to develop and main, and by hand. Capped: on the macos-26
+# image (Xcode 26.6, Swift 6.3.3) a closure in LoopbackTransport.deliver once
+# sent the compiler into an endless loop and every run sat in `swift build`
+# until GitHub cancelled it at six hours; the closure is gone, the cap stays.
 on:
+  push:
+    branches: [develop, main]
   workflow_dispatch:
 
 jobs:
