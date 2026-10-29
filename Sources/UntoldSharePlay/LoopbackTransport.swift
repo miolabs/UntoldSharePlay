@@ -262,11 +262,16 @@ public final class LoopbackTransport: SharePlayTransport, @unchecked Sendable {
         hub.startSession()
     }
 
+    /// Hands the session to `sessions()`, or holds it until that is called.
+    /// Written without a `withLock` closure on purpose: on Swift 6.3.3 (Xcode
+    /// 26.6) the compiler's closure-lifetime pass never finishes on the
+    /// closure this used to be (capturing `session`, returning the optional
+    /// continuation), and `swift build` hung for hours.
     func deliver(_ session: LoopbackSession) {
-        let continuation: AsyncStream<any SharePlayTransportSession>.Continuation? = lock.withLock {
-            if continuation == nil { pending.append(session) }
-            return continuation
-        }
+        lock.lock()
+        let continuation = continuation
+        if continuation == nil { pending.append(session) }
+        lock.unlock()
         continuation?.yield(session)
     }
 }

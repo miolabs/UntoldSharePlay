@@ -1,13 +1,18 @@
 name: Tests
 
+# On every push to develop and main, and by hand. Capped: on the macos-26
+# image (Xcode 26.6, Swift 6.3.3) a closure in LoopbackTransport.deliver once
+# sent the compiler into an endless loop and every run sat in `swift build`
+# until GitHub cancelled it at six hours; the closure is gone, the cap stays.
 on:
   push:
     branches: [develop, main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   mac:
     runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
