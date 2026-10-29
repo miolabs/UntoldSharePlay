@@ -12,6 +12,7 @@
 import Foundation
 import GroupActivities
 import Observation
+import simd
 
 public enum SharePlayEvent: Sendable, Equatable {
     case joined(local: UUID)
@@ -19,6 +20,8 @@ public enum SharePlayEvent: Sendable, Equatable {
     case participantLeft(UUID)
     case hostChanged(UUID?)
     case spatialChanged(Bool)
+    /// The system's pose of this device in the shared frame changed (or went away).
+    case systemPoseChanged(SharePlayMatrix?)
     case groupImmersionChanged(SharePlayGroupImmersion)
     case left
     case invalidated(String)
@@ -62,6 +65,11 @@ public final class SharePlaySession {
     /// This device takes part in the shared spatial arrangement.
     public private(set) var isSpatial = false
     public private(set) var groupImmersion: SharePlayGroupImmersion = .notRequested
+    /// This device's pose in the group's shared frame, when the system gave one
+    /// (visionOS 26; at key events such as the sharing start, not per frame).
+    /// With the device's own pose at that moment it yields the local-from-shared
+    /// transform: `localPose × inverse(systemPose)`.
+    public private(set) var systemPose: simd_float4x4?
 
     public var isHost: Bool {
         hostID != nil && hostID == localParticipantID
@@ -83,6 +91,7 @@ public final class SharePlaySession {
     @ObservationIgnored private var tickHandlers: [UUID: @MainActor () -> Void] = [:]
     @ObservationIgnored private var joinedAt: [UUID: TimeInterval] = [:]
     @ObservationIgnored private var remoteSpatial: [UUID: Bool] = [:]
+    @ObservationIgnored private var remotePoses: [UUID: SharePlayMatrix] = [:]
 
     public init(transport: any SharePlayTransport, configuration: Configuration = Configuration()) {
         self.transport = transport
@@ -216,19 +225,29 @@ public final class SharePlaySession {
         tickHandlers[id] = nil
     }
 
-    /// Opens the coordinator's space when the system asks for the group
-    /// immersive space, cycles it on the join (a space opened before the join
-    /// stays private), dismisses it when the group leaves its space.
-    public func drive(_ coordinator: ImmersiveSpaceCoordinator) {
+    /// Keeps the coordinator's space in step with the group. An open space is
+    /// cycled on the join, because a space opened before the join stays
+    /// private; the space is dismissed when the group leaves its space. A
+    /// closed space stays closed until the player opens it, once everyone has
+    /// joined, unless `opensOnRequest` is set: then the system's request for
+    /// the group immersive space opens it too.
+    public func drive(_ coordinator: ImmersiveSpaceCoordinator, opensOnRequest: Bool = false) {
         addEventHandler { event in
             switch event {
             case .joined:
-                coordinator.joinGroup(reason: "session joined")
+                if coordinator.phase != .closed {
+                    coordinator.joinGroup(reason: "session joined")
+                }
             case let .groupImmersionChanged(immersion):
                 switch immersion {
-                case .requested: coordinator.joinGroup(reason: "group immersion requested")
-                case .ended: coordinator.dismiss(reason: "group immersion ended")
-                case .notRequested: break
+                case .requested:
+                    if opensOnRequest || coordinator.phase != .closed {
+                        coordinator.joinGroup(reason: "group immersion requested")
+                    }
+                case .ended:
+                    coordinator.dismiss(reason: "group immersion ended")
+                case .notRequested:
+                    break
                 }
             default:
                 break
@@ -319,7 +338,21 @@ public final class SharePlaySession {
                 anchors.receiveAnnouncement(anchorID: id, from: received.sender)
             case .sharedAnchorRemoved:
                 anchors.receiveRemoval(from: received.sender)
+            case let .mark(pose):
+                frame.receiveMark(pose.matrix, from: received.sender)
+                SharePlayLog.info("mark received from \(received.sender)")
+            case let .placement(sharedFromLocal):
+                frame.receivePlacement(sharedFromLocal: sharedFromLocal.matrix, from: received.sender)
+                SharePlayLog.info("placement received from \(received.sender): \(frame.summary(of: received.sender))")
             }
+        }
+        if let placement = frame.takeOutgoingPlacement() {
+            frameChannel.send(.placement(sharedFromLocal: SharePlayMatrix(placement)))
+            SharePlayLog.info("placement sent: \(frame.displacementSummary)")
+        }
+        if let mark = frame.takeOutgoingMark() {
+            frameChannel.send(.mark(pose: SharePlayMatrix(mark)))
+            SharePlayLog.info("mark sent")
         }
         let now = ProcessInfo.processInfo.systemUptime
         for sync in frame.takeOutgoingSyncs(now: now) {
@@ -385,10 +418,12 @@ public final class SharePlaySession {
             joinedAt[participant.id] = joined
             let isLocal = participant.id == localParticipantID
             let spatial = isLocal ? isSpatial : (remoteSpatial[participant.id] ?? false)
-            next.append(SharePlayParticipant(
+            var entry = SharePlayParticipant(
                 id: participant.id, isLocal: isLocal, isNearby: participant.isNearby,
                 isSpatial: spatial, joinedAt: joined
-            ))
+            )
+            entry.systemPose = isLocal ? systemPose.map(SharePlayMatrix.init) : remotePoses[participant.id]
+            next.append(entry)
         }
         next.sort { lhs, rhs in
             lhs.joinedAt != rhs.joinedAt ? lhs.joinedAt < rhs.joinedAt : lhs.id.uuidString < rhs.id.uuidString
@@ -406,6 +441,7 @@ public final class SharePlaySession {
             let nearby = incoming.first { $0.id == id }?.isNearby ?? false
             SharePlayLog.info("participant joined: \(id), nearby \(nearby)")
             anchors.participantJoined(id)
+            frame.markPlacementForReannouncement()
             emit(.participantJoined(id))
         }
         if state == .joined {
@@ -417,14 +453,23 @@ public final class SharePlaySession {
 
     private func apply(spatial update: SharePlaySpatialUpdate) {
         remoteSpatial = update.remoteIsSpatial
+        remotePoses = update.remotePoses
         if isSpatial != update.localIsSpatial {
             isSpatial = update.localIsSpatial
             SharePlayLog.info("spatial: \(isSpatial)")
             emit(.spatialChanged(isSpatial))
         }
+        let localPose = update.localPose?.matrix
+        if localPose != systemPose {
+            systemPose = localPose
+            frame.setSystemPose(localPose)
+            SharePlayLog.info("system pose: \(localPose.map(SharedFrame.describe) ?? "none") → placement \(frame.displacementSummary)")
+            emit(.systemPoseChanged(update.localPose))
+        }
         participants = participants.map { participant in
             var updated = participant
             updated.isSpatial = participant.isLocal ? update.localIsSpatial : (update.remoteIsSpatial[participant.id] ?? participant.isSpatial)
+            updated.systemPose = participant.isLocal ? update.localPose : update.remotePoses[participant.id]
             return updated
         }
         if groupImmersion != update.groupImmersion {
@@ -435,13 +480,12 @@ public final class SharePlaySession {
         updateFrameParticipants()
     }
 
-    /// Who shares the system's frame with us, who sits where on the fallback
-    /// stage, and whether our shared anchor is wanted.
+    /// Who sits where on the fallback stage, and whether our shared anchor is
+    /// wanted. (Whether the system's placements apply is the placements'
+    /// business: a device announces one only once the system placed it.)
     private func updateFrameParticipants() {
         let others = others
         for (seat, participant) in others.enumerated() {
-            let shares = (isSpatial && participant.isSpatial) || participant.isNearby
-            frame.setSharesSystemFrame(shares, for: participant.id)
             frame.setSeat(seat, count: others.count, for: participant.id)
         }
         anchors.update(nearby: Set(others.filter(\.isNearby).map(\.id)), sessionActive: state == .joined)
@@ -473,6 +517,8 @@ public final class SharePlaySession {
         participants.removeAll()
         joinedAt.removeAll()
         remoteSpatial.removeAll()
+        remotePoses.removeAll()
+        systemPose = nil
         localParticipantID = nil
         let hadHost = hostID != nil
         hostID = nil

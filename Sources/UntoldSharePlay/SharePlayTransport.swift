@@ -95,11 +95,24 @@ public struct SharePlaySpatialUpdate: Sendable, Equatable {
     /// The same for the others, where the platform tells (visionOS 26).
     public var remoteIsSpatial: [UUID: Bool]
     public var groupImmersion: SharePlayGroupImmersion
+    /// This device's pose in the group's shared frame, when the system gives
+    /// one (visionOS 26; at key events such as the sharing start, not per frame).
+    public var localPose: SharePlayMatrix?
+    /// The others' poses in the shared frame, where the platform tells (visionOS 26).
+    public var remotePoses: [UUID: SharePlayMatrix]
 
-    public init(localIsSpatial: Bool = false, remoteIsSpatial: [UUID: Bool] = [:], groupImmersion: SharePlayGroupImmersion = .notRequested) {
+    public init(
+        localIsSpatial: Bool = false,
+        remoteIsSpatial: [UUID: Bool] = [:],
+        groupImmersion: SharePlayGroupImmersion = .notRequested,
+        localPose: SharePlayMatrix? = nil,
+        remotePoses: [UUID: SharePlayMatrix] = [:]
+    ) {
         self.localIsSpatial = localIsSpatial
         self.remoteIsSpatial = remoteIsSpatial
         self.groupImmersion = groupImmersion
+        self.localPose = localPose
+        self.remotePoses = remotePoses
     }
 }
 

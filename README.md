@@ -10,7 +10,7 @@ It comes from three hand-written copies of the same code: CoolSaber's duel in [U
 |---|---|---|
 | 1 | The core: session, channels, participants and host election, status view, diagnostics, the transport seam with the GroupActivities and loopback transports; tests on macOS | **built** (PR #1) |
 | 2 | The shared frame (the system's displacement, shared world anchors, the manual calibration, the fallback stage), the immersive-space coordinator, the displacement modifier for a CompositorLayer, the `SharedCube` example | **built** (this branch); the engine side of the shared anchors waits for the engine's world-anchor API |
-| 2b | The headset test of stages 1 and 2 with `Examples/SharedCube` (nearby, FaceTime, alone): the protocol is in the example's README | **next**, before anything else |
+| 2b | The headset test of stages 1 and 2 with `Examples/SharedCube`: the protocol is in the example's README | nearby **passed 2026-10-28** (both cubes on the heads, no manual step); FaceTime with the cube only **passed 2026-10-29**; alone **next**; FaceTime with the Persona waits for the engine's RealityKit presenter |
 | 3 | CoolSaber on the plugin (two headsets) | after the engine's world-anchor API ships |
 | 4 | Oche's SharePlay milestone on the core (RealityKit, no engine) | |
 | 5 | `untoldengine create --shareplay`, the engine docs page | **built** (engine fork PR miolabs/UntoldEngine#86) |
@@ -98,12 +98,34 @@ Starting: `await session.start()` runs the system's share flow (`prepareForActiv
 
 ### The shared frame
 
-Two frames: *shared*, the group's immersive-space frame, identical on every spatial or nearby device, which is what goes on the wire; and *local*, the frame the game simulates in: ARKit's world frame on the engine path, the scene's frame on a RealityView space (already the shared frame). Per remote participant one mapping is in force, by precedence: the manual calibration the players solved, then the participant's shared world anchor (nearby), then the system's displacement (spatial with us, or nearby), then a fallback stage pose (remote and not spatial: a row 2 m ahead, facing us, 0.8 m apart, in join order).
+Every device publishes poses in its own local frame, as they are: ARKit's
+world frame on the engine path, the scene's frame on a RealityView space.
+Each device also announces its *placement* in the group's shared frame when
+it knows one, and the receiver maps a participant's poses into its own frame
+by one of four alignments, in this order of precedence:
+
+1. **Manual**: the calibration the players solved (a mark, or one point both
+   can touch), wins over everything.
+2. **Shared anchor**: the participant's shared world anchor, placed at their
+   origin (nearby, visionOS 26, through the engine's world-anchor API).
+3. **System placements**: ours composed with theirs. A placement comes from
+   SwiftUI's `immersiveSpaceDisplacement` when the system moved our space, or
+   from the system coordinator's pose of this device in the shared frame: a
+   floor-level position and heading, which nearby tracks the device as the
+   person moves and over FaceTime is the seat the spatial template gave us,
+   reset when the group's space opens. Each pose is paired once with the
+   device pose on the floor (a head's height, or a later step, never enters
+   it), and a pairing made while the head moves does not replace one made
+   still. A Compositor Services space the system leaves where it is
+   (identity), so the pose is what aligns the devices; the headsets confirmed
+   it is delivered there, nearby and over FaceTime.
+4. **Fallback stage**: a row 2 m ahead, facing us, 0.8 m apart, in join order.
 
 ```swift
-// Before publishing: our local pose in the shared frame.
-poses.publish(Poses(head: session.frame.toShared(head)))
-// After receiving: the participant's wire pose in our local frame.
+// Every frame, on the render thread: the device pose pairs with the system's pose of us.
+session.frame.updateDevicePose(head)
+poses.publish(Poses(head: head))                               // our local frame, as it is
+// After receiving: the participant's pose in our local frame, by the alignment in force.
 let local = session.frame.toLocal(received.message.head, from: participant)
 session.frame.alignment(of: participant)      // .manual, .sharedAnchor, .systemDisplacement, .fallbackStage
 session.frame.summary(of: participant)        // for a diagnostics row
@@ -112,19 +134,23 @@ session.frame.fallbackStage = .init(distance: 2, spacing: 0.8)
 // A CompositorLayer app feeds the system's displacement (visionOS 26):
 CompositorLayer(configuration: config) { layerRenderer in ... }
     .sharePlayFrame(session)
-// A RealityView app does nothing: scene coordinates are the shared frame;
-// ARKit-sourced poses (hands, anchors) go through session.frame.sharedFromLocal.
+// A RealityView app's scene is the shared frame: say so once.
+session.frame.setSystemDisplacement(matrix_identity_float4x4)
 
-// The manual calibration: both players touch one point and face one way.
-// `remotePoint` and `remoteHeading` are what the participant published, raw.
-switch session.frame.calibrate(with: participant, localPoint: p, localHeading: h, remotePoint: rp, remoteHeading: rh) {
+// The manual calibration, with marks: one player marks their spot (a pose in
+// their local frame, the head or a controller) and steps aside; the other
+// stands on it, faces the same way and calibrates to the mark.
+session.frame.publishMark(localPose: head)                       // player 1, sent to everyone
+switch session.frame.calibrate(with: participant, localPoint: p, localHeading: h) {   // player 2, on the mark
 case let .solved(yawDegrees, offset): ...   // installed here, the inverse sent to the other side
-case let .failed(reason): ...               // "hold the headings level"
+case let .failed(reason): ...               // "no mark from the other side yet", "hold the headings level"
 }
-session.frame.setNudge(SIMD2(side, forward), for: participant)   // fine tune; re-sent once it rests 0.3 s
+// Or with one physical point both can touch at once (CoolSaber's controllers), raw from their state:
+session.frame.calibrate(with: participant, localPoint: p, localHeading: h, remotePoint: rp, remoteHeading: rh)
+session.frame.setNudge(SIMD2(side, forward), for: participant)   // fine tune; one alignment for both sides, re-sent once it rests 0.3 s
 ```
 
-Shared world anchors (visionOS 26, nearby participants): the session places this device's anchor at its origin as soon as someone nearby is in the session, announces its id on its own channel, and maps every other participant's anchor into the frame. This needs a world-tracking host: `session.anchors.attach(host)` with a `SharePlayWorldAnchorHost` (four methods: add a shared anchor, remove it, observe updates, stop observing). The engine's XR runtime conforms once its world-anchor API ships; until then a game on CoolSaber's engine branch writes the 20-line conformance itself.
+Shared world anchors (visionOS 26, nearby participants): the session places this device's anchor at its origin as soon as someone nearby is in the session, announces its id on its own channel, and maps every other participant's anchor into the frame; a device that received the other's anchor hands the alignment back as a sync, so one working direction aligns both. This needs a world-tracking host: `session.anchors.attach(host)` with a `SharePlayWorldAnchorHost` (four methods: add a shared anchor, remove it, observe updates, stop observing). The engine's XR runtime conforms once its world-anchor API ships; until then a game on CoolSaber's engine branch writes the 20-line conformance itself (`Examples/SharedCube/Sources/SharedCube/CubeAnchors.swift`).
 
 ### The immersive space
 
@@ -133,10 +159,19 @@ Shared world anchors (visionOS 26, nearby participants): the session places this
 ```swift
 let space = ImmersiveSpaceCoordinator(id: "Arena")          // tracksTeardown: false for a RealityView space
 space.bind(open: openImmersiveSpace, dismiss: dismissImmersiveSpace)
-session.drive(space)      // opens on the group's request, cycles on the join, dismisses when the group leaves
+session.drive(space)      // join first, then the player opens the space: an open space is cycled on the
+                          // join (it would stay private), the space is dismissed when the group leaves
+                          // its space; drive(space, opensOnRequest: true) also opens it on the group's request
 // From the CompositorLayer closure: space.spaceDidStart(rendering: true)
-// From the engine's shutdown completion: space.spaceDidTearDown()
+// After xr.runLoop() returns, on the main actor: release the engine, then space.spaceDidTearDown()
 ```
+
+Release the engine synchronously after `runLoop()` returns (stop it, clear the
+spatial input, `destroyAllEntities()` without a completion, drop the holder's
+references), as `Examples/SharedCube` and CoolBowling do. Do not wait for
+`shutdownUntoldEngineXR`'s completion there: it fires from a frame's finalize
+pass, and no frame runs once the loop has returned, so a game with entities
+would never report the teardown and the space could never reopen.
 
 ### Threads
 

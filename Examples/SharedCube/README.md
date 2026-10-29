@@ -17,7 +17,15 @@ visionOS 26 (the `CompositorContent` API). The engine comes from the fork's
 `develop`; the plugin from this repository by path. Run on a Vision Pro: the
 simulator builds and opens the space, but has no SharePlay. The launch
 argument `--open-space` opens the space at launch (simulator runs from the
-command line).
+command line); `--cycle-space` also closes and reopens it 8 s later, the way
+the join does.
+
+The shared world anchors (`CubeAnchors.swift`) are an opt-in: they need the
+engine's world-anchor API, still on its `feature/xr_shared_world_anchors`
+branch. `project.yml` says how to point the example at a checkout of it and
+set the `SHAREDCUBE_WORLD_ANCHORS` build flag. Without the flag the example
+aligns by the system's participant pose, the mark and the sync, which is what
+the nearby test passed with.
 
 ## What the window shows
 
@@ -45,31 +53,60 @@ in the second column.
 
 | Step | Expected |
 |---|---|
-| 1. On both: build, run, Open space. | A small cube on the floor at each device's own origin. |
-| 2. On one: Start SharePlay; choose the other person from the nearby list. On the other: accept. | Both windows: `Joined with 1 other participant`, `nearby 1`; the space closes and reopens on each (the join cycles it so it becomes the group's). |
-| 3. Look at each other. | A cube at the other person's head, within a few centimetres, if the system aligned the spaces: the participant line says `systemDisplacement`; `displacement` is not identity. If it says `systemDisplacement` but the cube is somewhere else, the displacement is identity for nearby participants in a Metal space (what CoolSaber saw): go to step 4. |
-| 4. Stand on one spot, face the same way, tap Sync on one device. | Its line turns `manual · yaw …° · offset … m`; within a second the other device's line says `synced by the other side`. The cubes now sit on the heads. |
-| 5. Move the sliders on the device that synced. | The cube shifts live; about a second after the sliders rest, the other device follows. |
+| 1. On both: build and run. Do not open the space yet. | The window's four numbered sections. |
+| 2. On one: Start SharePlay; choose the other person from the nearby list. On the other: accept. | Both windows: `Joined with 1 other participant`, section 2 lists the other as `nearby`. Nothing opens by itself. |
+| 3. On both: Open space. | A small cube on the floor at each device's own origin. Within a few seconds `our placement:` reads `from the system pose …` on both, each other's line reads `systemDisplacement`, and the other player's cube sits on their head with no manual step. (`spatial` may flicker to `no` as the space opens; the system pose comes back.) |
+| 4. Player 1: stand on a spot, face a direction, tap Mark my spot, step aside. Player 2: stand on that spot, face the same way, tap Sync to the mark. | Player 2's line turns `manual · yaw …° · offset … m`; within a second player 1's says `synced by the other side`. The cubes now sit on the heads, on both devices. |
+| 5. Move the sliders on either device. | The cube shifts live there; about a second after the sliders rest, the other device follows: it is one alignment seen from both sides. |
 | 6. One leaves (Leave). | The other: `Waiting for others…`, the cube gone, the line back to `fallbackStage`. |
-| 7. Join again from the call. | Back to step 2's state; the previous calibration is not reused (a new join is a new participant). |
+| 7. Join again from the call. | Back to step 2's state; the previous alignment is not reused (a new join is a new participant), so mark and sync again. |
 
-Shared world anchors are not part of this test yet: the engine's world-anchor
-API is still on CoolSaber's engine branch, so `anchors:` shows `no anchor
-host`. When it lands, step 3 is expected to show `sharedAnchor` without the
-manual sync.
+Two automatic alignments come from the room map the system builds when both
+players look at the same point, before any mark and sync:
 
-### B. Remote, over FaceTime (spatial Personas)
+- **The system's participant pose** (`system pose:` in the window): the
+  coordinator's floor-level pose of this device in the shared frame, updated
+  as the person moves; paired with the device pose on the floor it is the
+  device's placement, announced to the others. This is what step 3 expects.
+- **Shared world anchors** (the opt-in above): each device places an anchor
+  at its origin, the others receive it in their own frame; a device that
+  received one hands the alignment back as a sync. Expected when they cross:
+  `anchors: own anchor … tracked` and the other's line `sharedAnchor` or
+  `manual`. On the runs so far the anchors did not cross; the pose did.
+
+If neither shows, note what the window says and go on to step 4.
+
+**Result 2026-10-28:** step 3 passed on two headsets: both cubes on the
+heads with no manual step, by the system's participant pose.
+
+### B1. Remote, over FaceTime: the cube in our own render
+
+Two headsets in two rooms. Compositor Services draws no Personas, so inside
+the engine's space the other player is only their cube; this test is about
+that cube.
 
 | Step | Expected |
 |---|---|
-| 1. FaceTime call between the two headsets, Personas on. On both: run, Open space. | As A.1. |
-| 2. On one: Start SharePlay. On the other: accept. | Both: `spatial yes`, `nearby 0`; the space cycles on each. |
-| 3. Look where the system seats the other Persona (conversational template). | A cube at the Persona's head, through `systemDisplacement`; `displacement` is not identity on at least one side. |
-| 4. Leave and rejoin as A.6 and A.7. | The same. |
+| 1. FaceTime call between the two headsets. On both: run. | As A.1. |
+| 2. On one: Start SharePlay. On the other: accept. | Both windows: `Joined with 1 other participant`, `nearby 0`. Nothing opens by itself. |
+| 3. On both: Open space. | Within a few seconds `our placement:` reads `from the system pose …` on both and the other's line `systemDisplacement`. Their cube sits at the seat the system's conversational template gives them, relative to where you stood when the space opened: about 1.4 m away, facing you. Not where their Persona stood before the open: the system re-seats everyone when the group's space opens (the poses in the log reset to the template's seats), and the Metal space has no Persona to show the new seat. Mark and Sync make no sense across rooms; the sliders still nudge. |
+| 4. Walk, turn, crouch on one side. | On the other side the cube stays put in the room while its owner stands still, and follows the walker's head at the right height and heading relative to their seat. |
+| 5. Leave and rejoin as A.6 and A.7. | The same. |
 
-No Persona is visible inside the engine's space (Compositor Services draws no
-Personas); the cube is the stand-in. That limit is the RealityKit presenter
-plan's business, not this test's.
+**First run 2026-10-28:** both cubes showed in front, at the fallback spot:
+the space's identity displacement had locked the placement and the spatial
+flags flickered at the open. Both fixed. **Second run 2026-10-29: passed.**
+
+### B2. Remote, over FaceTime: the cube on the spatial Persona
+
+Needs the engine's RealityKit presenter (the hybrid of the Spatial Personas
+plan), which puts the engine's frame in a space the system can seat Personas
+in; it is not part of this gate. When it is in:
+
+| Step | Expected |
+|---|---|
+| 1. As B1.1 and B1.2, Personas on. | `spatial yes` on both before the space opens. |
+| 2. On both: Open space. Look at the other Persona. | The cube on the Persona's head, through `systemDisplacement`, where the system seated them (conversational template); `displacement` is not identity on at least one side. |
 
 ### C. Alone
 
@@ -81,5 +118,5 @@ plan's business, not this test's.
 ## What to report
 
 The `[SharePlay]` log of both devices for each section, the participant
-lines at steps A.3, A.4 and B.3, and how far the cube sat from the head
-before and after the sync. Open an issue on this repository with them.
+lines at steps A.3, A.4, B1.3 and B2.2, and how far the cube sat from the
+head before and after the sync. Open an issue on this repository with them.

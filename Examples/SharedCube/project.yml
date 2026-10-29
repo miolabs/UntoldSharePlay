@@ -15,8 +15,15 @@ options:
 packages:
   UntoldSharePlay:
     path: ../..
-  # The engine from the fork while the plugin lives there; for a local checkout
-  # use `path:` to a folder NAMED UntoldEngine.
+  # The engine from the fork's develop. For the shared world anchors
+  # (CubeAnchors.swift) it needs the world-anchor API, which is still on the
+  # engine branch feature/xr_shared_world_anchors: point this at a checkout of
+  # that branch (the folder must be NAMED UntoldEngine), for example
+  #   UntoldEngine:
+  #     path: ../../../UntoldEngine
+  # and under targets > SharedCube > settings > base add
+  #   SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) SHAREDCUBE_WORLD_ANCHORS
+  # then run xcodegen generate again.
   UntoldEngine:
     url: https://github.com/miolabs/UntoldEngine.git
     branch: develop

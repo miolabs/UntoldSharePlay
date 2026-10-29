@@ -16,6 +16,9 @@ public struct SharePlayParticipant: Identifiable, Hashable, Sendable {
     public var isSpatial: Bool
     /// This device's uptime when the participant was first seen.
     public let joinedAt: TimeInterval
+    /// The participant's pose in the group's shared frame, when the system gave
+    /// one (visionOS 26, at key events such as the sharing start).
+    public var systemPose: SharePlayMatrix?
 
     public init(id: UUID, isLocal: Bool, isNearby: Bool = false, isSpatial: Bool = false, joinedAt: TimeInterval) {
         self.id = id

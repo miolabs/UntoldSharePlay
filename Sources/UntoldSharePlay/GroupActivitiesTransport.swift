@@ -13,6 +13,8 @@ import Combine
 import Foundation
 import GroupActivities
 #if os(visionOS)
+    import simd
+    import Spatial
     import SwiftUI // the _GroupActivities_SwiftUI overlay: SystemCoordinator.groupImmersionStyle
 #endif
 
@@ -219,9 +221,13 @@ final class GroupActivitiesTransportSession<Activity: GroupActivity & Sendable>:
                 tasks.append(Task { @MainActor in
                     for await participantState in coordinator.localParticipantStates {
                         let remote = Self.remoteSpatial(coordinator)
+                        let remotePoses = Self.remotePoses(coordinator)
+                        let localPose = Self.pose(of: participantState)
                         state.update {
                             $0.localIsSpatial = participantState.isSpatial
                             $0.remoteIsSpatial = remote
+                            $0.localPose = localPose
+                            $0.remotePoses = remotePoses
                         }
                     }
                 })
@@ -240,11 +246,35 @@ final class GroupActivitiesTransportSession<Activity: GroupActivity & Sendable>:
         #if os(visionOS)
             guard let coordinator, let spatialState else { return }
             let remote = Self.remoteSpatial(coordinator)
-            spatialState.update { $0.remoteIsSpatial = remote }
+            let remotePoses = Self.remotePoses(coordinator)
+            spatialState.update {
+                $0.remoteIsSpatial = remote
+                $0.remotePoses = remotePoses
+            }
         #endif
     }
 
     #if os(visionOS)
+        private static func pose(of state: SystemCoordinator.ParticipantState) -> SharePlayMatrix? {
+            if #available(visionOS 26.0, *), let pose = state.pose {
+                return SharePlayMatrix(simd_float4x4(pose))
+            }
+            return nil
+        }
+
+        private static func remotePoses(_ coordinator: SystemCoordinator) -> [UUID: SharePlayMatrix] {
+            if #available(visionOS 26.0, *) {
+                var poses: [UUID: SharePlayMatrix] = [:]
+                for (participant, state) in coordinator.remoteParticipantStates {
+                    if let pose = state.pose {
+                        poses[participant.id] = SharePlayMatrix(simd_float4x4(pose))
+                    }
+                }
+                return poses
+            }
+            return [:]
+        }
+
         private static func remoteSpatial(_ coordinator: SystemCoordinator) -> [UUID: Bool] {
             if #available(visionOS 26.0, *) {
                 return Dictionary(uniqueKeysWithValues: coordinator.remoteParticipantStates.map { ($0.key.id, $0.value.isSpatial) })

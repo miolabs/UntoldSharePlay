@@ -21,7 +21,7 @@ struct SharedCubeActivity: GroupActivity {
     }
 }
 
-/// Our head pose, in the group's shared frame.
+/// Our head pose, in our own local frame; the receiver maps it.
 struct HeadPose: Codable, Sendable {
     var matrix: SharePlayMatrix
 }

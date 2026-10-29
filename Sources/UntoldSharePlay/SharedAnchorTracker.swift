@@ -69,6 +69,8 @@ public final class SharedAnchorTracker: @unchecked Sendable {
     private var sessionActive = false
     private var owners: [UUID: UUID] = [:] // anchor id → participant
     private var unattributed: [UUID: SharePlayAnchorUpdate] = [:]
+    /// The last anchor-based alignment handed to each participant, and when.
+    private var sharedMappings: [UUID: (receiverFromSender: simd_float4x4, uptime: TimeInterval)] = [:]
     private var outgoing: [(message: SharePlayFrameMessage, recipients: SharePlayRecipients)] = []
 
     init(frame: SharedFrame) {
@@ -147,6 +149,7 @@ public final class SharedAnchorTracker: @unchecked Sendable {
             for (anchor, owner) in owners where owner == participant {
                 owners[anchor] = nil
             }
+            sharedMappings[participant] = nil
         }
         frame.setAnchor(localFromParticipant: nil, tracked: false, summary: "", for: participant)
     }
@@ -158,6 +161,7 @@ public final class SharedAnchorTracker: @unchecked Sendable {
             owners.removeAll()
             unattributed.removeAll()
             outgoing.removeAll()
+            sharedMappings.removeAll()
         }
         reconcile()
     }
@@ -264,7 +268,29 @@ public final class SharedAnchorTracker: @unchecked Sendable {
             )
             frame.setAnchor(localFromParticipant: update.localFromAnchor, tracked: update.isTracked, summary: summary, for: participant)
             if update.event == .added { SharePlayLog.info("anchor: \(participant)'s shared anchor \(update.id) — \(summary)") }
+            if update.isTracked { shareMapping(update.localFromAnchor, with: participant) }
         }
+    }
+
+    /// Their anchor gave us local-from-them; the inverse is their local-from-us.
+    /// Handed over as a sync (at most once a second, and only when it moved),
+    /// so the alignment holds even if our own anchor never reaches them.
+    private func shareMapping(_ localFromParticipant: simd_float4x4, with participant: UUID) {
+        let receiverFromSender = simd_inverse(localFromParticipant)
+        let now = ProcessInfo.processInfo.systemUptime
+        let send: Bool = lock.withLock {
+            if let last = sharedMappings[participant] {
+                guard now - last.uptime >= 1 else { return false }
+                let moved = simd_distance(last.receiverFromSender.columns.3, receiverFromSender.columns.3) > 0.01
+                    || simd_distance(last.receiverFromSender.columns.0, receiverFromSender.columns.0) > 0.01
+                guard moved else { return false }
+            }
+            sharedMappings[participant] = (receiverFromSender, now)
+            return true
+        }
+        guard send else { return }
+        frame.queueSync(for: participant, receiverFromSender: receiverFromSender)
+        SharePlayLog.info("anchor: alignment to \(participant) handed to them as a sync")
     }
 }
 
@@ -276,4 +302,9 @@ enum SharePlayFrameMessage: Codable, Sendable, Equatable {
     /// The sender's shared world anchor has this id.
     case sharedAnchor(id: UUID)
     case sharedAnchorRemoved
+    /// The sender marked a spot: a pose in the sender's local frame for the
+    /// others to stand on and calibrate to.
+    case mark(pose: SharePlayMatrix)
+    /// The sender's placement in the group's frame: shared-from-their-local.
+    case placement(sharedFromLocal: SharePlayMatrix)
 }

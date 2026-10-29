@@ -1,4 +1,5 @@
 import Foundation
+import simd
 @testable import UntoldSharePlay
 import XCTest
 
@@ -154,6 +155,20 @@ final class SharePlaySessionTests: XCTestCase {
         sessionA.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: true, remoteIsSpatial: [participantID(2): true], groupImmersion: .ended))
         try await waitUntil { a.groupImmersion == .ended }
         XCTAssertEqual(logA.events.filter { $0 == .spatialChanged(true) }.count, 1, "unchanged flags do not repeat events")
+
+        // The system's poses, where it gives them: ours on the session, theirs on the participant.
+        var mine = matrix_identity_float4x4
+        mine.columns.3 = SIMD4(1, 0, -2, 1)
+        var theirs = matrix_identity_float4x4
+        theirs.columns.3 = SIMD4(-1, 0, -2, 1)
+        XCTAssertNil(a.systemPose)
+        sessionA.simulateSpatial(SharePlaySpatialUpdate(localIsSpatial: true, remoteIsSpatial: [participantID(2): true], groupImmersion: .ended, localPose: SharePlayMatrix(mine), remotePoses: [participantID(2): SharePlayMatrix(theirs)]))
+        try await waitUntil { a.systemPose == mine }
+        XCTAssertEqual(a.others.first?.systemPose, SharePlayMatrix(theirs))
+        XCTAssertEqual(a.participants.first?.systemPose, SharePlayMatrix(mine))
+        XCTAssertTrue(logA.contains(.systemPoseChanged(SharePlayMatrix(mine))))
+        a.leave()
+        XCTAssertNil(a.systemPose)
     }
 
     func testReorderedStateFramesAreDroppedAsStale() async throws {
