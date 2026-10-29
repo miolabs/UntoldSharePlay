@@ -8,6 +8,9 @@ on:
 jobs:
   mac:
     runs-on: macos-26
+    # Every run so far hung in `swift build` until GitHub's six-hour limit
+    # cancelled it; a hang must not cost that again.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
