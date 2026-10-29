@@ -95,7 +95,7 @@ that cube.
 
 **First run 2026-10-28:** both cubes showed in front, at the fallback spot:
 the space's identity displacement had locked the placement and the spatial
-flags flickered at the open. Both fixed; to be run again.
+flags flickered at the open. Both fixed. **Second run 2026-10-29: passed.**
 
 ### B2. Remote, over FaceTime: the cube on the spatial Persona
 
