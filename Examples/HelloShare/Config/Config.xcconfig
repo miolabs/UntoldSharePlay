@@ -1,0 +1,4 @@
+// The bundle identifier of the example; the team comes from the gitignored
+// Local.xcconfig (copy Local.xcconfig.example and fill in DEVELOPMENT_TEAM).
+PRODUCT_BUNDLE_IDENTIFIER = com.miolabs.untold.helloshare
+#include? "Local.xcconfig"

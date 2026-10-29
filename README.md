@@ -25,6 +25,16 @@ It comes from three hand-written copies of the same code: CoolSaber's duel in [U
 
 Platforms: visionOS 2, iOS 17, macOS 14 (the engine's minimums). The visionOS 26 API (nearby participants, remote spatial states) is used when available and reported as absent before. The system coordinator exists only on visionOS; on macOS and iOS the session carries messages and participants only.
 
+## Documentation
+
+| Read | For |
+|---|---|
+| [docs/GettingStarted.md](docs/GettingStarted.md) | SharePlay in an Untold Engine game, step by step: the package, the activity, the session and its channels, the window, the immersive space, the render thread, the alignment, how to try it. |
+| [docs/Recipes.md](docs/Recipes.md) | One task at a time, each with complete code: share a value, tell everyone, seed a newcomer, pick a host, show the others, open the space together, line up by hand, try it on a Mac, read the diagnostics. The Mac ones are tests. |
+| [Examples/HelloShare](Examples/HelloShare/README.md) | The smallest game: a window that shares a tap count and a wave. No engine, no immersive space. |
+| [Examples/SharedCube](Examples/SharedCube/README.md) | The engine game: every participant's head as a cube in the immersive space, the alignment controls, and the headset test protocol. |
+| The sections below | The reference: the API in one listing, the shared frame's precedence, the immersive space, threads, the lessons the plugin encodes, the layout. |
+
 ## Install
 
 ```swift
@@ -197,7 +207,7 @@ The session and the status view are main-actor and observable. The channels and 
 swift test
 ```
 
-The core (50 tests) is tested on macOS through `LoopbackTransport`: a `LoopbackHub` makes one transport per simulated participant, a session for all of them on the first `start()`, and routes frames between the joined ones with optional loss, reordering and delay on the unreliable path. The same hub runs two instances of a game on one Mac. `LoopbackSession.simulateSpatial` stands in for the system coordinator.
+The core (62 tests) is tested on macOS through `LoopbackTransport`: a `LoopbackHub` makes one transport per simulated participant, a session for all of them on the first `start()`, and routes frames between the joined ones with optional loss, reordering and delay on the unreliable path. The same hub runs two instances of a game on one Mac. `LoopbackSession.simulateSpatial` stands in for the system coordinator.
 
 GroupActivities itself is exercised only on devices (the simulator has no SharePlay).
 
@@ -219,6 +229,8 @@ GroupActivities itself is exercised only on devices (the simulator has no ShareP
 | `ImmersiveSpaceCoordinator.swift` | The open/cycle/dismiss phase machine. |
 | `CompositorContent+SharePlay.swift` | `.sharePlayFrame(session)` for a CompositorLayer (visionOS 26). |
 | `Examples/SharedCube/` | The example app and the headset test protocol (its README): every participant's head as a cube, with the calibration and the nudges in the window (`xcodegen generate`, visionOS 26). |
+| `Examples/HelloShare/` | The smallest example: a window sharing a tap count and a wave, no engine (`xcodegen generate`, visionOS 26). |
+| `docs/` | The integration guide and the recipes. |
 
 ## Compatibility
 
