@@ -18,6 +18,21 @@ import GroupActivities
     import SwiftUI // the _GroupActivities_SwiftUI overlay: SystemCoordinator.groupImmersionStyle
 #endif
 
+#if os(visionOS)
+    /// `SharePlaySpatialTemplate.row` as the system's template.
+    struct RowTemplate: SpatialTemplate {
+        let seats: Int
+        let spacing: Double
+        let distance: Double
+
+        var elements: [any SpatialTemplateElement] {
+            SharePlaySpatialTemplate.rowOffsets(seats: seats, spacing: spacing).map { x in
+                SpatialTemplateSeatElement(position: .app.offsetBy(x: x, z: distance), direction: .lookingAt(.app))
+            }
+        }
+    }
+#endif
+
 public final class GroupActivitiesTransport<Activity: GroupActivity & Sendable>: SharePlayTransport {
     private let makeActivity: @Sendable () -> Activity
     #if os(visionOS)
@@ -289,6 +304,7 @@ final class GroupActivitiesTransportSession<Activity: GroupActivity & Sendable>:
             case .sideBySide: return .sideBySide
             case .conversational: return .conversational
             case .surround: return .surround
+            case let .row(seats, spacing, distance): return .custom(RowTemplate(seats: seats, spacing: spacing, distance: distance))
             }
         }
     #endif

@@ -102,6 +102,7 @@ public final class SharedFrame: @unchecked Sendable {
     private let lock = NSLock()
     // Our placement in the group's frame.
     private var sharedFromLocalStorage = matrix_identity_float4x4
+    private var spaceDisplacementStorage = matrix_identity_float4x4
     private var placementSource = PlacementSource.none
     private var placementSummary = "unknown"
     private var placementDirty = false
@@ -133,8 +134,19 @@ public final class SharedFrame: @unchecked Sendable {
     public func setSystemDisplacement(_ localFromShared: simd_float4x4, summary: String? = nil) {
         lock.withLock {
             placementSource = .environment
+            spaceDisplacementStorage = localFromShared
             setPlacementLocked(simd_inverse(localFromShared), summary: summary ?? "space displaced \(Self.describe(localFromShared))")
         }
+    }
+
+    /// The system's displacement of this device's space as last applied
+    /// (local-from-scene: the scene's origin in the local frame), identity
+    /// when the system left the space where it is. A renderer that draws
+    /// local-frame content (ARKit's hands, planes, anchors) in a displaced
+    /// RealityView scene puts the inverse on its root, so the content lands
+    /// where it physically is.
+    public var spaceDisplacement: simd_float4x4 {
+        lock.withLock { spaceDisplacementStorage }
     }
 
     /// SwiftUI's `immersiveSpaceDisplacement` as it comes. Identity means the
@@ -144,6 +156,7 @@ public final class SharedFrame: @unchecked Sendable {
     public func setImmersiveSpaceDisplacement(_ localFromShared: simd_float4x4, summary: String? = nil) {
         guard localFromShared != matrix_identity_float4x4 else {
             lock.withLock {
+                spaceDisplacementStorage = matrix_identity_float4x4
                 guard placementSource == .environment else { return }
                 placementSource = .none
                 setPlacementLocked(matrix_identity_float4x4, summary: "unknown (the space is back where it was)")
@@ -475,6 +488,23 @@ public final class SharedFrame: @unchecked Sendable {
 
     public func toLocal(direction: SIMD3<Float>, from participant: UUID) -> SIMD3<Float> {
         Self.transform(direction: direction, by: localFromParticipant(participant))
+    }
+
+    /// Content given in the group's shared frame (a board at the origin, a
+    /// screen, a stage), in this device's local frame by our placement: the
+    /// space's displacement when the system moved our space, else the
+    /// system pose paired with the device pose. Identity until a placement
+    /// is known.
+    public func toLocal(sharedPose pose: simd_float4x4) -> simd_float4x4 {
+        localFromShared * pose
+    }
+
+    public func toLocal(sharedPoint point: SIMD3<Float>) -> SIMD3<Float> {
+        Self.transform(point: point, by: localFromShared)
+    }
+
+    public func toLocal(sharedDirection direction: SIMD3<Float>) -> SIMD3<Float> {
+        Self.transform(direction: direction, by: localFromShared)
     }
 
     // MARK: Math
