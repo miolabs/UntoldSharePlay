@@ -58,6 +58,17 @@ public enum SharePlaySpatialTemplate: Sendable, Equatable {
     case sideBySide
     case conversational
     case surround
+    /// A cinema: `seats` in a row `distance` metres in front of the
+    /// content at the shared frame's origin, `spacing` metres apart, all
+    /// looking at the origin (a darts oche, a screen, a stage). The seats
+    /// are at +z, centred on x = 0, on the floor.
+    case row(seats: Int, spacing: Double, distance: Double)
+
+    /// The x offsets of a row's seats, centred on zero.
+    public static func rowOffsets(seats: Int, spacing: Double) -> [Double] {
+        guard seats > 0 else { return [] }
+        return (0 ..< seats).map { (Double($0) - Double(seats - 1) / 2) * spacing }
+    }
 }
 
 /// What the session asks the system coordinator for.

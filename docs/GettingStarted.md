@@ -468,14 +468,21 @@ to compare when something is off.
 ## 9. Without the engine
 
 The core has no engine dependency: a RealityKit game uses the session, the
-channels and the coordinator as above, with three differences. Its
-`ImmersiveSpace` holds a `RealityView`, so the coordinator is made with
+channels and the coordinator as above, with these differences (the
+README's "RealityView spaces" has the reasons, from Oche's headset runs).
+Its `ImmersiveSpace` holds a `RealityView`, so the coordinator is made with
 `tracksTeardown: false` and `spaceDidTearDown()` is called from the view's
-`onDisappear`. Its scene is the frame the system seats everyone in, so the
-app says so once with `session.frame.setSystemDisplacement(matrix_identity_float4x4)`
-and publishes poses in the scene's frame. There is no `CompositorLayer`, so
-no `.sharePlayFrame`. No game has exercised this path yet; Oche's SharePlay
-milestone (stage 4 in the README) is the first.
+`onDisappear`. Its scene is the frame the system seats everyone in, and
+ARKit reports in it too (the device pose, the hands, planes, anchors): the
+space's view takes `.sharePlayFrame(session)`, which says so to the frame
+(`session.frame.declareSceneIsSharedFrame()`), and the game publishes poses
+and places the group's content in the scene's coordinates as they are. The
+system's displacement of the space is never applied and nothing goes on
+the renderer's root: the headsets showed that doing so looks right and
+leaves the hands kilometres from the content. A game whose room is the
+player's own passes
+`drive(space, dismissesOnGroupEnd: false)`. Oche's SharePlay milestone
+(stage 4 in the README) is the first game on this path.
 
 ## 10. Reading on
 

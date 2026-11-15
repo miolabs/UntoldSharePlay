@@ -102,6 +102,7 @@ public final class SharedFrame: @unchecked Sendable {
     private let lock = NSLock()
     // Our placement in the group's frame.
     private var sharedFromLocalStorage = matrix_identity_float4x4
+    private var spaceDisplacementStorage = matrix_identity_float4x4
     private var placementSource = PlacementSource.none
     private var placementSummary = "unknown"
     private var placementDirty = false
@@ -127,14 +128,36 @@ public final class SharedFrame: @unchecked Sendable {
     /// Our local frame placed in the group's shared frame by the environment:
     /// a pose in the shared frame times `localFromShared` lands in this
     /// device's local frame. Exact, and it wins over the system pose. A
-    /// RealityView space, whose scene is the shared frame, sets identity once;
-    /// a space the system moved passes SwiftUI's displacement through
-    /// `setImmersiveSpaceDisplacement`, which knows identity means "not moved".
+    /// RealityView space, whose scene is the shared frame, declares identity
+    /// (`declareSceneIsSharedFrame`); a Compositor Services space passes
+    /// SwiftUI's displacement through `setImmersiveSpaceDisplacement`, which
+    /// knows identity means "not moved".
     public func setSystemDisplacement(_ localFromShared: simd_float4x4, summary: String? = nil) {
         lock.withLock {
             placementSource = .environment
+            spaceDisplacementStorage = localFromShared
             setPlacementLocked(simd_inverse(localFromShared), summary: summary ?? "space displaced \(Self.describe(localFromShared))")
         }
+    }
+
+    /// A RealityView immersive space: its scene is the group's shared frame
+    /// and ARKit's frame at once, so this device's local frame is the shared
+    /// frame. The system does move the space to the participant's seat and
+    /// reports it as SwiftUI's `immersiveSpaceDisplacement`, but ARKit's
+    /// origin moves with the space; nothing of that displacement is fed
+    /// here and nothing compensates it (the headset measurement is in
+    /// `View+SharePlay.swift`). Wins over the system pose and survives a
+    /// session's end.
+    public func declareSceneIsSharedFrame() {
+        setSystemDisplacement(matrix_identity_float4x4, summary: "the scene is the shared frame")
+    }
+
+    /// The displacement last given to the frame (local-from-shared), for a
+    /// diagnostics row: identity for a RealityView space and for a space
+    /// the system left where it is. It is not something to put on a
+    /// renderer's root: content in the local frame is already where it is.
+    public var spaceDisplacement: simd_float4x4 {
+        lock.withLock { spaceDisplacementStorage }
     }
 
     /// SwiftUI's `immersiveSpaceDisplacement` as it comes. Identity means the
@@ -144,6 +167,7 @@ public final class SharedFrame: @unchecked Sendable {
     public func setImmersiveSpaceDisplacement(_ localFromShared: simd_float4x4, summary: String? = nil) {
         guard localFromShared != matrix_identity_float4x4 else {
             lock.withLock {
+                spaceDisplacementStorage = matrix_identity_float4x4
                 guard placementSource == .environment else { return }
                 placementSource = .none
                 setPlacementLocked(matrix_identity_float4x4, summary: "unknown (the space is back where it was)")
@@ -475,6 +499,23 @@ public final class SharedFrame: @unchecked Sendable {
 
     public func toLocal(direction: SIMD3<Float>, from participant: UUID) -> SIMD3<Float> {
         Self.transform(direction: direction, by: localFromParticipant(participant))
+    }
+
+    /// Content given in the group's shared frame (a board at the origin, a
+    /// screen, a stage), in this device's local frame by our placement:
+    /// identity for a RealityView space (its scene is the shared frame), the
+    /// displacement given for a Compositor Services space, else the system
+    /// pose paired with the device pose. Identity until a placement is known.
+    public func toLocal(sharedPose pose: simd_float4x4) -> simd_float4x4 {
+        localFromShared * pose
+    }
+
+    public func toLocal(sharedPoint point: SIMD3<Float>) -> SIMD3<Float> {
+        Self.transform(point: point, by: localFromShared)
+    }
+
+    public func toLocal(sharedDirection direction: SIMD3<Float>) -> SIMD3<Float> {
+        Self.transform(direction: direction, by: localFromShared)
     }
 
     // MARK: Math

@@ -43,6 +43,11 @@ public final class ImmersiveSpaceCoordinator {
     public private(set) var phase: Phase = .closed
     /// Presented but the renderer never attached: only a dismiss recovers.
     public private(set) var presentedEmpty = false
+    /// A join cycle is under way: the open space is being dismissed to be
+    /// reopened shared. The system reports the group's immersion as ended
+    /// while that dismiss runs (a RealityView space, Oche 2026-10-29), and
+    /// such a report must not cancel the reopen.
+    public private(set) var isCycling = false
     public private(set) var lastOpenResult = "—"
 
     @ObservationIgnored private var openAction: (@MainActor () async -> OpenResult)?
@@ -144,13 +149,16 @@ public final class ImmersiveSpaceCoordinator {
             open(reason: reason)
         case .opening:
             log("joinGroup (\(reason)) — open in flight, cycling once it is up")
+            isCycling = true
             pendingDismiss = true
             pendingOpen = true
         case .open:
             log("joinGroup (\(reason)) — cycling the open space to make it shared")
+            isCycling = true
             pendingOpen = true
             dismiss(reason: reason)
         case .closing:
+            isCycling = true
             pendingOpen = true
         }
     }
@@ -182,6 +190,8 @@ public final class ImmersiveSpaceCoordinator {
         if pendingOpen {
             pendingOpen = false
             open(reason: "reopen after teardown")
+        } else {
+            isCycling = false
         }
     }
 
@@ -194,6 +204,8 @@ public final class ImmersiveSpaceCoordinator {
             if pendingDismiss {
                 pendingDismiss = false
                 dismiss(reason: "deferred dismiss")
+            } else {
+                isCycling = false
             }
         case .userCancelled, .error:
             phase = .closed
@@ -203,6 +215,8 @@ public final class ImmersiveSpaceCoordinator {
                 pendingOpen = false
                 log("retrying open after \(result)")
                 open(reason: "retry")
+            } else {
+                isCycling = false
             }
         }
     }

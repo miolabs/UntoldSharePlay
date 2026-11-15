@@ -227,11 +227,14 @@ public final class SharePlaySession {
 
     /// Keeps the coordinator's space in step with the group. An open space is
     /// cycled on the join, because a space opened before the join stays
-    /// private; the space is dismissed when the group leaves its space. A
-    /// closed space stays closed until the player opens it, once everyone has
-    /// joined, unless `opensOnRequest` is set: then the system's request for
-    /// the group immersive space opens it too.
-    public func drive(_ coordinator: ImmersiveSpaceCoordinator, opensOnRequest: Bool = false) {
+    /// private. The system's request for the group immersive space is the
+    /// echo of a participant's open (this device's own, on a RealityView
+    /// space: the headset log of 2026-10-29), so a space already open or
+    /// opening is left as it is; a closed one opens only with
+    /// `opensOnRequest`. The group leaving its space dismisses ours when
+    /// `dismissesOnGroupEnd` (the default), never during our own join cycle,
+    /// whose dismiss the system reports as the group's end.
+    public func drive(_ coordinator: ImmersiveSpaceCoordinator, opensOnRequest: Bool = false, dismissesOnGroupEnd: Bool = true) {
         addEventHandler { event in
             switch event {
             case .joined:
@@ -241,11 +244,19 @@ public final class SharePlaySession {
             case let .groupImmersionChanged(immersion):
                 switch immersion {
                 case .requested:
-                    if opensOnRequest || coordinator.phase != .closed {
-                        coordinator.joinGroup(reason: "group immersion requested")
+                    if coordinator.phase != .closed {
+                        SharePlayLog.info("space \(coordinator.id): group immersion requested while \(coordinator.phaseLabel): already shared, left as it is")
+                    } else if opensOnRequest {
+                        coordinator.open(reason: "group immersion requested")
                     }
                 case .ended:
-                    coordinator.dismiss(reason: "group immersion ended")
+                    if coordinator.isCycling {
+                        SharePlayLog.info("space \(coordinator.id): group immersion ended during the join cycle: the reopen stands")
+                    } else if dismissesOnGroupEnd {
+                        coordinator.dismiss(reason: "group immersion ended")
+                    } else {
+                        SharePlayLog.info("space \(coordinator.id): group immersion ended, the space is the player's")
+                    }
                 case .notRequested:
                     break
                 }
