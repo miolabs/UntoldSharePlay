@@ -3,10 +3,12 @@ import simd
 @testable import UntoldSharePlay
 import XCTest
 
-/// What a RealityView space taught the plugin (Oche, 2026-10-29): the
-/// system echoes a participant's open as the group's request and reports
-/// the group's end during the app's own dismiss; content lives at poses
-/// given in the shared frame; the seats stand in a row facing it.
+/// What a RealityView space taught the plugin (Oche, 2026-10-29 and
+/// 2026-11-15): the system echoes a participant's open as the group's
+/// request and reports the group's end during the app's own dismiss; the
+/// scene is the shared frame and ARKit's frame at once, so nothing of the
+/// space's displacement is applied; the seats stand in a row facing the
+/// content.
 @MainActor
 final class RealityViewSpaceTests: XCTestCase {
     /// SwiftUI's open and dismiss, completing at once and counted.
@@ -113,13 +115,60 @@ final class RealityViewSpaceTests: XCTestCase {
         b.leave()
     }
 
+    /// A RealityView scene is the shared frame: a shared point is a local
+    /// point, whatever seat the system reports and wherever the head is,
+    /// and it stays so through a session's end. (On the headsets the
+    /// displacement was 2.5 km; a build that applied it had its darts that
+    /// far from the hands that pinched them.)
+    func testARealityViewSceneIsTheSharedFrame() {
+        let frame = SharedFrame()
+        frame.declareSceneIsSharedFrame()
+        XCTAssertTrue(frame.hasPlacement)
+        XCTAssertEqual(frame.spaceDisplacement, matrix_identity_float4x4)
+        var seat = simd_float4x4(simd_quatf(angle: 175 * .pi / 180, axis: SIMD3(0, 1, 0)))
+        seat.columns.3 = SIMD4(-0.32, 0, 1.76, 1) // the system's pose of us over FaceTime
+        frame.setSystemPose(seat)
+        var head = matrix_identity_float4x4
+        head.columns.3 = SIMD4(-0.30, 1.62, 1.80, 1) // ARKit's device pose: already in the scene's frame
+        frame.updateDevicePose(head)
+        let board = SIMD3<Float>(0, 1.73, -0.6)
+        XCTAssertEqual(simd_distance(frame.toLocal(sharedPoint: board), board), 0, accuracy: 1e-5)
+        XCTAssertEqual(simd_distance(frame.toLocal(sharedDirection: SIMD3(0, 0, 1)), SIMD3(0, 0, 1)), 0, accuracy: 1e-5)
+        XCTAssertEqual(frame.sharedFromLocal, matrix_identity_float4x4, "the seat does not move a declared frame")
+        frame.reset()
+        XCTAssertTrue(frame.hasPlacement, "the scene is still the shared frame after a session")
+        XCTAssertEqual(frame.toLocal(sharedPoint: board), board)
+    }
+
+    /// Two RealityView devices: what one publishes in its scene lands at the
+    /// same coordinates in the other's.
+    func testTwoRealityViewScenesShareOneFrame() async throws {
+        let hub = LoopbackHub()
+        let a = SharePlaySession(transport: hub.makeTransport(id: participantID(1)))
+        let b = SharePlaySession(transport: hub.makeTransport(id: participantID(2)))
+        a.frame.declareSceneIsSharedFrame()
+        b.frame.declareSceneIsSharedFrame()
+        a.startObserving()
+        b.startObserving()
+        _ = await a.start()
+        try await waitUntil { a.state == .joined && b.state == .joined && a.participants.count == 2 && b.participants.count == 2 }
+        try await waitUntil { b.frame.alignment(of: participantID(1)) == .systemDisplacement && a.frame.alignment(of: participantID(2)) == .systemDisplacement }
+        let hand = SIMD3<Float>(0.46, 1.15, 1.92)
+        XCTAssertEqual(simd_distance(b.frame.toLocal(point: hand, from: participantID(1)), hand), 0, accuracy: 1e-4)
+        XCTAssertEqual(simd_distance(a.frame.toLocal(point: hand, from: participantID(2)), hand), 0, accuracy: 1e-4)
+        a.leave()
+        b.leave()
+    }
+
+    /// The frame's own maths for a displaced space (the Compositor Services
+    /// path): a placement given maps shared content into the local frame.
     func testContentInTheSharedFrameLandsInTheLocalFrameByThePlacement() {
         let frame = SharedFrame()
         // No placement: the shared frame is the local one.
         XCTAssertEqual(frame.toLocal(sharedPoint: SIMD3(0, 1.73, 0)), SIMD3(0, 1.73, 0))
         XCTAssertEqual(frame.spaceDisplacement, matrix_identity_float4x4)
 
-        // The system moved our space: its origin 2 m ahead, turned 90° (the kilometres of a real one are the same maths).
+        // A placement 2 m ahead, turned 90°.
         var displacement = simd_float4x4(simd_quatf(angle: .pi / 2, axis: SIMD3(0, 1, 0)))
         displacement.columns.3 = SIMD4(0, 0, -2, 1)
         frame.setImmersiveSpaceDisplacement(displacement)

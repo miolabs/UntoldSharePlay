@@ -128,9 +128,10 @@ public final class SharedFrame: @unchecked Sendable {
     /// Our local frame placed in the group's shared frame by the environment:
     /// a pose in the shared frame times `localFromShared` lands in this
     /// device's local frame. Exact, and it wins over the system pose. A
-    /// RealityView space, whose scene is the shared frame, sets identity once;
-    /// a space the system moved passes SwiftUI's displacement through
-    /// `setImmersiveSpaceDisplacement`, which knows identity means "not moved".
+    /// RealityView space, whose scene is the shared frame, declares identity
+    /// (`declareSceneIsSharedFrame`); a Compositor Services space passes
+    /// SwiftUI's displacement through `setImmersiveSpaceDisplacement`, which
+    /// knows identity means "not moved".
     public func setSystemDisplacement(_ localFromShared: simd_float4x4, summary: String? = nil) {
         lock.withLock {
             placementSource = .environment
@@ -139,12 +140,22 @@ public final class SharedFrame: @unchecked Sendable {
         }
     }
 
-    /// The system's displacement of this device's space as last applied
-    /// (local-from-scene: the scene's origin in the local frame), identity
-    /// when the system left the space where it is. A renderer that draws
-    /// local-frame content (ARKit's hands, planes, anchors) in a displaced
-    /// RealityView scene puts the inverse on its root, so the content lands
-    /// where it physically is.
+    /// A RealityView immersive space: its scene is the group's shared frame
+    /// and ARKit's frame at once, so this device's local frame is the shared
+    /// frame. The system does move the space to the participant's seat and
+    /// reports it as SwiftUI's `immersiveSpaceDisplacement`, but ARKit's
+    /// origin moves with the space; nothing of that displacement is fed
+    /// here and nothing compensates it (the headset measurement is in
+    /// `View+SharePlay.swift`). Wins over the system pose and survives a
+    /// session's end.
+    public func declareSceneIsSharedFrame() {
+        setSystemDisplacement(matrix_identity_float4x4, summary: "the scene is the shared frame")
+    }
+
+    /// The displacement last given to the frame (local-from-shared), for a
+    /// diagnostics row: identity for a RealityView space and for a space
+    /// the system left where it is. It is not something to put on a
+    /// renderer's root: content in the local frame is already where it is.
     public var spaceDisplacement: simd_float4x4 {
         lock.withLock { spaceDisplacementStorage }
     }
@@ -491,10 +502,10 @@ public final class SharedFrame: @unchecked Sendable {
     }
 
     /// Content given in the group's shared frame (a board at the origin, a
-    /// screen, a stage), in this device's local frame by our placement: the
-    /// space's displacement when the system moved our space, else the
-    /// system pose paired with the device pose. Identity until a placement
-    /// is known.
+    /// screen, a stage), in this device's local frame by our placement:
+    /// identity for a RealityView space (its scene is the shared frame), the
+    /// displacement given for a Compositor Services space, else the system
+    /// pose paired with the device pose. Identity until a placement is known.
     public func toLocal(sharedPose pose: simd_float4x4) -> simd_float4x4 {
         localFromShared * pose
     }

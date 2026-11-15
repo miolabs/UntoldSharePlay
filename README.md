@@ -144,9 +144,9 @@ session.frame.fallbackStage = .init(distance: 2, spacing: 0.8)
 // A CompositorLayer app feeds the system's displacement (visionOS 26):
 CompositorLayer(configuration: config) { layerRenderer in ... }
     .sharePlayFrame(session)
-// A RealityView app feeds the same displacement from its space's view (see "RealityView spaces").
+// A RealityView app's scene is the shared frame: it says so (see "RealityView spaces").
 RealityView { content in ... }
-    .sharePlayFrame(session)
+    .sharePlayFrame(session)        // or session.frame.declareSceneIsSharedFrame(), once
 
 // The manual calibration, with marks: one player marks their spot (a pose in
 // their local frame, the head or a controller) and steps aside; the other
@@ -187,13 +187,13 @@ would never report the teardown and the space could never reopen.
 
 ### RealityView spaces
 
-A RealityKit game uses the session, the channels and the coordinator as an engine game does, with what Oche's headset runs (2026-10-29) taught:
+A RealityKit game uses the session, the channels and the coordinator as an engine game does, with what Oche's headset runs (2026-10-29 and 2026-11-15) taught:
 
 - The coordinator is made with `tracksTeardown: false` and `spaceDidTearDown()` is called from the RealityView's `onDisappear`.
 - The system reports the group's immersion as *requested* right after the app's own open (the echo of it) and as *ended* while the app's own dismiss runs. `drive` therefore leaves a space that is open or opening alone on a request, and never cancels a join cycle's reopen on an end that arrives during it (`ImmersiveSpaceCoordinator.isCycling`).
-- Over FaceTime the system moves the group space to the participant's seat, kilometres from ARKit's origin, and says so through SwiftUI's `immersiveSpaceDisplacement`. `.sharePlayFrame(session)` on the space's view feeds it into the frame; the value flips to identity and back as the app's windows come and go, so while the session is joined a real displacement is kept until a new real one arrives.
-- Everything ARKit gives (hands, planes, anchors) is in ARKit's frame, which is the local frame. A renderer puts `session.frame.spaceDisplacement.inverse` on its root so that content lands where it physically is, and maps the scene's hit points back with `spaceDisplacement`.
-- Content that belongs to the group (a board, a screen, a stage) is given in the shared frame and placed with `frame.toLocal(sharedPose:)` / `toLocal(sharedPoint:)` / `toLocal(sharedDirection:)`: the displacement when the system moved the space, else the system pose paired with the device pose.
+- **The scene, ARKit and the shared frame are one frame.** Over FaceTime the system moves the group space to the participant's seat and reports the move through SwiftUI's `immersiveSpaceDisplacement` (about 2.5 km on the headsets, flipping to identity and back as the app's windows come and go), but ARKit's origin moves with the space: the device pose, the hands, planes and anchors already arrive in the scene's coordinates. `.sharePlayFrame(session)` on the space's view (or `session.frame.declareSceneIsSharedFrame()`) tells the frame so; nothing of the displacement is applied, and nothing goes on the renderer's root.
+- The measurement (two Vision Pros over FaceTime, 2026-11-15): displacement `pos (127.56, 0.00, -2549.16) m · yaw 7.4°`, the seat `(-0.32, 0.00, 1.76) m`. A build that mapped its content by the displacement and put the inverse on its RealityKit root (this section's advice until then) drew everything in the right place and had a dart at `(128.27, 1.15, -2547.30)` while the hand pinching it reported `(0.46, 1.15, 1.92)`. Undone from the displacement the dart is at `(0.46, 1.15, 1.94)`: the compensation cancels on screen and leaves every ARKit input kilometres from the content.
+- Content that belongs to the group (a board, a screen, a stage) is given in the shared frame, which here is the scene: its coordinates are used as they are. `frame.toLocal(sharedPose:)` / `toLocal(sharedPoint:)` / `toLocal(sharedDirection:)` return them unchanged for a RealityView space and map by the placement elsewhere, so code written against them is the same on both paths.
 - `.row(seats:spacing:distance:)` is the cinema template: the seats in a row at +z looking at the content at the origin.
 
 ### Threads
@@ -210,11 +210,11 @@ The session and the status view are main-actor and observable. The channels and 
 6. `prepareForActivation()` runs before `activate()`: "not available" is a state, not an error.
 7. Nearby and spatial flags come from the visionOS 26 API when it exists, and are false before.
 8. The group's immersion style is reported as `.notRequested`, `.requested(style)` or `.ended`; `drive` turns it into open, cycle and dismiss.
-9. The system's displacement is ARKit-from-shared: the sender strips its own, the receiver applies its own; the device anchor and the controllers stay in the un-displaced ARKit frame.
+9. On a Compositor Services space the system's displacement is ARKit-from-shared: the sender strips its own, the receiver applies its own; the device anchor and the controllers stay in the un-displaced ARKit frame. (A RealityView space is lesson 13: nothing is applied.)
 10. Shared world anchors are nearby-only and ARKit does not say who placed one, so each device announces its anchor's id; with exactly one nearby participant an unannounced anchor is theirs.
 11. A participant leaving voids every mapping solved for them; a session ending resets the frame.
 12. On a RealityView space the group's immersion request is the echo of the app's own open, and the group's end is reported during the app's own dismiss: no cycle on the first, no cancelled reopen on the second.
-13. The space's displacement flips to identity and back while the app's windows come and go: a real one is kept while the session is joined.
+13. A RealityView scene is the shared frame and ARKit's frame at once: the space's displacement (kilometres over FaceTime, flipping to identity and back while the app's windows come and go) is the system's own business, since ARKit's origin moves with the space. Applying it, or its inverse on a renderer's root, looks right and puts the hands kilometres from the content.
 
 ### Testing
 
